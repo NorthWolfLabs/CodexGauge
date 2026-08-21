@@ -1,0 +1,549 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 110;
+	objects = {
+
+/* Begin PBXContainerItemProxy section */
+		5EECA0CC3038E6010058574B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5EECA0B63038E6000058574B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5EECA0BD3038E6000058574B;
+			remoteInfo = CodexGauge;
+		};
+		5EECA0D63038E6010058574B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5EECA0B63038E6000058574B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5EECA0BD3038E6000058574B;
+			remoteInfo = CodexGauge;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		5EECA0BE3038E6000058574B /* CodexGauge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = CodexGauge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5EECA0CB3038E6010058574B /* CodexGaugeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexGaugeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5EECA0D53038E6010058574B /* CodexGaugeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexGaugeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		5EECA0C03038E6000058574B /* CodexGauge */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CodexGauge;
+			sourceTree = "<group>";
+		};
+		5EECA0CE3038E6010058574B /* CodexGaugeTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CodexGaugeTests;
+			sourceTree = "<group>";
+		};
+		5EECA0D83038E6010058574B /* CodexGaugeUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = CodexGaugeUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5EECA0BB3038E6000058574B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		5EECA0C83038E6010058574B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		5EECA0D23038E6010058574B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5EECA0B53038E6000058574B = {
+			isa = PBXGroup;
+			children = (
+				5EECA0C03038E6000058574B /* CodexGauge */,
+				5EECA0CE3038E6010058574B /* CodexGaugeTests */,
+				5EECA0D83038E6010058574B /* CodexGaugeUITests */,
+				5EECA0BF3038E6000058574B /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5EECA0BF3038E6000058574B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5EECA0BE3038E6000058574B /* CodexGauge.app */,
+				5EECA0CB3038E6010058574B /* CodexGaugeTests.xctest */,
+				5EECA0D53038E6010058574B /* CodexGaugeUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5EECA0BD3038E6000058574B /* CodexGauge */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5EECA0DD3038E6010058574B /* Build configuration list for PBXNativeTarget "CodexGauge" */;
+			buildPhases = (
+				5EECA0BA3038E6000058574B /* Sources */,
+				5EECA0BB3038E6000058574B /* Frameworks */,
+				5EECA0BC3038E6000058574B /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				5EECA0C03038E6000058574B /* CodexGauge */,
+			);
+			name = CodexGauge;
+			productName = CodexGauge;
+			productReference = 5EECA0BE3038E6000058574B /* CodexGauge.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5EECA0CA3038E6010058574B /* CodexGaugeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5EECA0E03038E6010058574B /* Build configuration list for PBXNativeTarget "CodexGaugeTests" */;
+			buildPhases = (
+				5EECA0C73038E6010058574B /* Sources */,
+				5EECA0C83038E6010058574B /* Frameworks */,
+				5EECA0C93038E6010058574B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5EECA0CD3038E6010058574B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5EECA0CE3038E6010058574B /* CodexGaugeTests */,
+			);
+			name = CodexGaugeTests;
+			productName = CodexGaugeTests;
+			productReference = 5EECA0CB3038E6010058574B /* CodexGaugeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		5EECA0D43038E6010058574B /* CodexGaugeUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5EECA0E33038E6010058574B /* Build configuration list for PBXNativeTarget "CodexGaugeUITests" */;
+			buildPhases = (
+				5EECA0D13038E6010058574B /* Sources */,
+				5EECA0D23038E6010058574B /* Frameworks */,
+				5EECA0D33038E6010058574B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5EECA0D73038E6010058574B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5EECA0D83038E6010058574B /* CodexGaugeUITests */,
+			);
+			name = CodexGaugeUITests;
+			productName = CodexGaugeUITests;
+			productReference = 5EECA0D53038E6010058574B /* CodexGaugeUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5EECA0B63038E6000058574B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					5EECA0BD3038E6000058574B = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					5EECA0CA3038E6010058574B = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 5EECA0BD3038E6000058574B;
+					};
+					5EECA0D43038E6010058574B = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = 5EECA0BD3038E6000058574B;
+					};
+				};
+			};
+			buildConfigurationList = 5EECA0B93038E6000058574B /* Build configuration list for PBXProject "CodexGauge" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5EECA0B53038E6000058574B;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5EECA0BF3038E6000058574B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5EECA0BD3038E6000058574B /* CodexGauge */,
+				5EECA0CA3038E6010058574B /* CodexGaugeTests */,
+				5EECA0D43038E6010058574B /* CodexGaugeUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5EECA0BC3038E6000058574B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		5EECA0C93038E6010058574B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		5EECA0D33038E6010058574B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5EECA0BA3038E6000058574B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		5EECA0C73038E6010058574B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		5EECA0D13038E6010058574B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5EECA0CD3038E6010058574B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5EECA0BD3038E6000058574B /* CodexGauge */;
+			targetProxy = 5EECA0CC3038E6010058574B /* PBXContainerItemProxy */;
+		};
+		5EECA0D73038E6010058574B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5EECA0BD3038E6000058574B /* CodexGauge */;
+			targetProxy = 5EECA0D63038E6010058574B /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		5EECA0DB3038E6010058574B /* Debug configuration for PBXProject "CodexGauge" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		5EECA0DC3038E6010058574B /* Release configuration for PBXProject "CodexGauge" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		5EECA0DE3038E6010058574B /* Debug configuration for PBXNativeTarget "CodexGauge" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		5EECA0DF3038E6010058574B /* Release configuration for PBXNativeTarget "CodexGauge" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		5EECA0E13038E6010058574B /* Debug configuration for PBXNativeTarget "CodexGaugeTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGaugeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodexGauge.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CodexGauge";
+			};
+			name = Debug;
+		};
+		5EECA0E23038E6010058574B /* Release configuration for PBXNativeTarget "CodexGaugeTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGaugeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/CodexGauge.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/CodexGauge";
+			};
+			name = Release;
+		};
+		5EECA0E43038E6010058574B /* Debug configuration for PBXNativeTarget "CodexGaugeUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGaugeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = CodexGauge;
+			};
+			name = Debug;
+		};
+		5EECA0E53038E6010058574B /* Release configuration for PBXNativeTarget "CodexGaugeUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGaugeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = CodexGauge;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5EECA0B93038E6000058574B /* Build configuration list for PBXProject "CodexGauge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5EECA0DB3038E6010058574B /* Debug configuration for PBXProject "CodexGauge" */,
+				5EECA0DC3038E6010058574B /* Release configuration for PBXProject "CodexGauge" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		5EECA0DD3038E6010058574B /* Build configuration list for PBXNativeTarget "CodexGauge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5EECA0DE3038E6010058574B /* Debug configuration for PBXNativeTarget "CodexGauge" */,
+				5EECA0DF3038E6010058574B /* Release configuration for PBXNativeTarget "CodexGauge" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		5EECA0E03038E6010058574B /* Build configuration list for PBXNativeTarget "CodexGaugeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5EECA0E13038E6010058574B /* Debug configuration for PBXNativeTarget "CodexGaugeTests" */,
+				5EECA0E23038E6010058574B /* Release configuration for PBXNativeTarget "CodexGaugeTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		5EECA0E33038E6010058574B /* Build configuration list for PBXNativeTarget "CodexGaugeUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5EECA0E43038E6010058574B /* Debug configuration for PBXNativeTarget "CodexGaugeUITests" */,
+				5EECA0E53038E6010058574B /* Release configuration for PBXNativeTarget "CodexGaugeUITests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 5EECA0B63038E6000058574B /* Project object */;
+	validationLevel = 1;
+}

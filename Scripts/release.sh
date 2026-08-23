@@ -24,7 +24,7 @@ fail() {
 
 reject_release_diagnostics() {
   local log_file="$1"
-  if rg -i \
+  if grep -Ei \
     'Invalid frame dimension|Custom UnitPoint values are not supported|main actor-isolated.*nonisolated|main-thread XCTest|accessibility.*failed|warning:.*(Sendable|actor-isolated|concurr)' \
     "$log_file"; then
     fail "release-blocking warning or runtime fault found in $log_file"

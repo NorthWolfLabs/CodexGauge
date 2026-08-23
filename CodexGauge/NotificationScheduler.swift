@@ -1,7 +1,7 @@
 import AppKit
 import CryptoKit
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 @MainActor
 final class UserNotificationScheduler: NotificationScheduling, @unchecked Sendable {

@@ -1,10 +1,25 @@
 import Foundation
 
+private struct DemoNotificationScheduler: NotificationScheduling {
+    let status: NotificationAuthorizationState
+
+    func requestAuthorization() async -> Bool { status == .authorized }
+    func authorizationStatus() async -> NotificationAuthorizationState { status }
+    func evaluate(snapshot: AccountSnapshot, thresholds: [Int]) async {}
+    func evaluate(conversations: [ConversationTelemetry]) async {}
+}
+
 @MainActor
 enum DemoData {
     static func state() -> AppState {
-        let state = AppState(startImmediately: false)
         let arguments = Set(ProcessInfo.processInfo.arguments)
+        let notificationStatus: NotificationAuthorizationState = arguments.contains("-uiTestDeniedNotifications")
+            ? .denied
+            : .authorized
+        let state = AppState(
+            notifications: DemoNotificationScheduler(status: notificationStatus),
+            startImmediately: false
+        )
         let now = Date.now
         state.freshness = .fresh
         state.executableURL = URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex")
@@ -120,9 +135,7 @@ enum DemoData {
             state.freshness = .unavailable
             state.errorMessage = "Open ChatGPT and sign in to view Codex allowances."
         }
-        if arguments.contains("-uiTestDeniedNotifications") {
-            state.notificationAuthorization = .denied
-        }
+        state.notificationAuthorization = notificationStatus
         if arguments.contains("-uiTestOversizedValues"), let original = state.conversations.first {
             state.conversations[0] = ConversationTelemetry(
                 id: original.id,

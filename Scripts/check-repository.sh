@@ -30,7 +30,7 @@ grep -Eq 'Copyright © 2026 North Wolf Labs LLC' "$project_file"
 grep -Eq 'membershipExceptions = \(' "$project_file"
 grep -Eq 'AppIcon\.icon' "$project_file"
 
-if grep -REn '(DEVELOPER_ID_P12_BASE64|ASC_API_KEY_P8_BASE64):[[:space:]]*[^$[:space:]]' .github Scripts; then
+if grep -REn '(DEVELOPER_ID_P12_BASE64|DEVELOPER_ID_P12_PASSWORD|ASC_API_KEY_P8_BASE64|ASC_API_KEY_ID|ASC_API_ISSUER_ID):[[:space:]]+[^$[:space:]]' .github; then
   print -u2 "A release secret appears to be embedded in source."
   exit 1
 fi

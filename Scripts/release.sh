@@ -74,7 +74,7 @@ run_tests() {
   xcodebuild test \
     -project "$project" \
     -scheme "$scheme" \
-    -configuration Release \
+    -configuration Debug \
     -destination 'platform=macOS,arch=arm64' \
     -resultBundlePath "$release_root/Tests.xcresult" \
     ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \

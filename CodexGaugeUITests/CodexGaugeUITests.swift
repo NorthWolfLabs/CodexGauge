@@ -28,9 +28,9 @@ final class CodexGaugeUITests: XCTestCase {
     }
 
     @MainActor
-    func testPopoverKeepsConversationSectionWhileTasksLoad() throws {
+    func testPopoverPresentsLoadingAndLoadedConversationStates() throws {
         let app = XCUIApplication()
-        app.launchArguments += ["-uiTestDemo", "-uiTestDelayedConversations"]
+        app.launchArguments += ["-uiTestDemo", "-uiTestLoading"]
         app.launch()
 
         let statusItem = app.statusItems["codexgauge.statusItem"]
@@ -40,10 +40,18 @@ final class CodexGaugeUITests: XCTestCase {
         let loading = app.descendants(matching: .any)["conversations-loading"].firstMatch
         XCTAssertTrue(loading.waitForExistence(timeout: 3))
         capture("00-conversations-loading")
+        app.terminate()
 
-        let liveTask = app.descendants(matching: .any)["live-conversation-disclosure"].firstMatch
-        XCTAssertTrue(liveTask.waitForExistence(timeout: 8))
-        XCTAssertFalse(loading.exists)
+        let loadedApp = XCUIApplication()
+        loadedApp.launchArguments += ["-uiTestDemo"]
+        loadedApp.launch()
+
+        let loadedStatusItem = loadedApp.statusItems["codexgauge.statusItem"]
+        XCTAssertTrue(loadedStatusItem.waitForExistence(timeout: 5))
+        loadedStatusItem.click()
+        let liveTask = loadedApp.descendants(matching: .any)["live-conversation-disclosure"].firstMatch
+        XCTAssertTrue(liveTask.waitForExistence(timeout: 3))
+        XCTAssertFalse(loadedApp.descendants(matching: .any)["conversations-loading"].firstMatch.exists)
         capture("00b-conversations-loaded")
     }
 

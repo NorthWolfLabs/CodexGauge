@@ -115,7 +115,7 @@ CI uses an App Store Connect API key materialized into a temporary directory. Th
 
 Release candidates use tags such as `v1.0.0-rc.1`. The stable `v1.0.0` tag is created only after installing the notarized release candidate on clean macOS 14 and macOS 26 systems. `CURRENT_PROJECT_VERSION` is an integer that increases for every distributed build and is never reused.
 
-The protected `release` GitHub Environment must require reviewer approval with self-approval disabled. Configure its Infisical OIDC identity as described in [RELEASING.md](RELEASING.md).
+The protected `release` GitHub Environment requires reviewer approval, permits self-approval while the project has one maintainer, and limits deployments to `v*` tags. Its five Apple release credentials are scoped to that Environment as described in [RELEASING.md](RELEASING.md).
 
 ## Contributing and support
 

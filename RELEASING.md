@@ -5,28 +5,16 @@
 Create a protected Environment named `release` in `NorthWolfLabs/CodexGauge`.
 
 - Require at least one reviewer.
-- Disable self-approval.
+- Allow self-approval while the project has a single maintainer.
 - Restrict deployment branches and tags to `v*` tags.
-- Keep workflow permissions at `contents: write` and `id-token: write` only.
-- Do not store long-lived Apple credentials in GitHub secrets.
+- Keep the release job's workflow permission at `contents: write` only.
+- Store Apple release credentials as secrets on the `release` Environment, not as repository secrets.
 
 The workflow has one release concurrency group, so two tags cannot publish simultaneously.
 
-## Infisical OIDC
+## Release credentials
 
-Create an Infisical machine identity that accepts GitHub’s OIDC token only when:
-
-- Subject: `repo:NorthWolfLabs/CodexGauge:environment:release`
-- Audience: `https://github.com/NorthWolfLabs`
-- Access: read-only, production release secret path only
-
-Configure these non-secret GitHub repository variables:
-
-- `INFISICAL_PROJECT_SLUG`
-- `INFISICAL_IDENTITY_ID`
-- `INFISICAL_SECRET_PATH` (for example `/github/release`)
-
-Store these values only in Infisical:
+Add these GitHub Environment secrets to `release`:
 
 - `DEVELOPER_ID_P12_BASE64`
 - `DEVELOPER_ID_P12_PASSWORD`
@@ -34,7 +22,9 @@ Store these values only in Infisical:
 - `ASC_API_KEY_ID`
 - `ASC_API_ISSUER_ID`
 
-The project slug and identity ID are intentionally repository variables because their privileges come from the OIDC subject and audience restrictions, not from secrecy. Their actual values are environment-specific and must not be guessed in source control.
+The workflow exposes the certificate and private key only to the signing-environment step. It imports the certificate into an ephemeral Keychain, writes the App Store Connect key to a temporary directory, and destroys both in an unconditional cleanup step. The notarization step receives only the App Store Connect key ID and issuer ID from GitHub Secrets; the private key is referenced through its temporary path.
+
+GitHub does not allow a secret to be retrieved or renamed after it is saved. Verify all five names in the Environment before creating a release tag. Keep offline, access-controlled backups of the original Developer ID export and App Store Connect private key.
 
 ## Release candidate
 

@@ -20,3 +20,4 @@ CodexGauge/AppIcon.icon/
 .DS_Store
 .env
 .env.*
+.infisical.json

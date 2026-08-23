@@ -25,18 +25,6 @@ final class CodexGaugeAppDelegate: NSObject, NSApplicationDelegate {
             state = AppState()
         }
         super.init()
-
-        if ProcessInfo.processInfo.arguments.contains("-uiTestDelayedConversations") {
-            let delayedConversations = state.conversations
-            state.conversations = []
-            state.hasLoadedConversations = false
-            Task { @MainActor [weak state] in
-                try? await Task.sleep(for: .seconds(4))
-                guard !Task.isCancelled else { return }
-                state?.conversations = delayedConversations
-                state?.hasLoadedConversations = true
-            }
-        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {

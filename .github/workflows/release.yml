@@ -52,7 +52,7 @@ jobs:
           xcodebuild test \
             -project CodexGauge.xcodeproj \
             -scheme CodexGauge \
-            -configuration Release \
+            -configuration Debug \
             -destination 'platform=macOS,arch=arm64' \
             -resultBundlePath "$RUNNER_TEMP/Release-${{ matrix.macos }}.xcresult" \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
@@ -90,7 +90,6 @@ jobs:
     environment: release
     permissions:
       contents: write
-      id-token: write
     steps:
       - name: Check out tagged source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -101,24 +100,30 @@ jobs:
           candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
           if [[ -n "$candidate" ]]; then sudo xcode-select --switch "$candidate/Contents/Developer"; fi
           ./Scripts/check-toolchain.sh
-      - name: Fetch release credentials from Infisical
-        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
-        with:
-          method: oidc
-          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
-          oidc-audience: https://github.com/NorthWolfLabs
-          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
-          env-slug: prod
-          secret-path: ${{ vars.INFISICAL_SECRET_PATH }}
       - name: Create ephemeral signing environment
         shell: zsh {0}
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
         run: |
           set -euo pipefail
+          [[ -n "$DEVELOPER_ID_P12_BASE64" ]] || { print -u2 'Missing release secret: DEVELOPER_ID_P12_BASE64'; exit 1; }
+          [[ -n "$DEVELOPER_ID_P12_PASSWORD" ]] || { print -u2 'Missing release secret: DEVELOPER_ID_P12_PASSWORD'; exit 1; }
+          [[ -n "$ASC_API_KEY_P8_BASE64" ]] || { print -u2 'Missing release secret: ASC_API_KEY_P8_BASE64'; exit 1; }
+          [[ -n "$ASC_API_KEY_ID" ]] || { print -u2 'Missing release secret: ASC_API_KEY_ID'; exit 1; }
+          [[ -n "$ASC_API_ISSUER_ID" ]] || { print -u2 'Missing release secret: ASC_API_ISSUER_ID'; exit 1; }
           release_temp="$(mktemp -d "$RUNNER_TEMP/codexgauge-release.XXXXXX")"
           keychain="$release_temp/release.keychain-db"
           keychain_password="$(openssl rand -hex 32)"
           p12="$release_temp/developer-id.p12"
           api_key="$release_temp/AuthKey_${ASC_API_KEY_ID}.p8"
+          {
+            echo "RELEASE_TEMP=$release_temp"
+            echo "RELEASE_KEYCHAIN=$keychain"
+          } >> "$GITHUB_ENV"
           print -rn -- "$DEVELOPER_ID_P12_BASE64" | base64 -D > "$p12"
           print -rn -- "$ASC_API_KEY_P8_BASE64" | base64 -D > "$api_key"
           chmod 600 "$p12" "$api_key"
@@ -129,14 +134,14 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
           security list-keychains -d user -s "$keychain" login.keychain-db
           {
-            echo "RELEASE_TEMP=$release_temp"
-            echo "RELEASE_KEYCHAIN=$keychain"
             echo "RELEASE_KEYCHAIN_PASSWORD=$keychain_password"
             echo "ASC_API_KEY_PATH=$api_key"
           } >> "$GITHUB_ENV"
       - name: Build, notarize, and verify release
         env:
           RELEASE_TAG: ${{ github.ref_name }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
         run: ./Scripts/release.sh all
       - name: Create draft GitHub release
         env:

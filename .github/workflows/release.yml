@@ -102,7 +102,7 @@ jobs:
           if [[ -n "$candidate" ]]; then sudo xcode-select --switch "$candidate/Contents/Developer"; fi
           ./Scripts/check-toolchain.sh
       - name: Fetch release credentials from Infisical
-        uses: Infisical/secrets-action@a663da43e1541832614bfd9dcf9ab67381ea2b98 # v1.0.12
+        uses: Infisical/secrets-action@77ab1f4ccd183a543cb5b42435fbd181189f4995 # v1.0.16
         with:
           method: oidc
           identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}

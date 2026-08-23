@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repository:
+    runs-on: macos-26
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Select required stable Xcode
+        run: |
+          candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
+          if [[ -n "$candidate" ]]; then sudo xcode-select --switch "$candidate/Contents/Developer"; fi
+          ./Scripts/check-toolchain.sh
+      - name: Check repository and documentation
+        run: ./Scripts/check-repository.sh
+
+  test:
+    name: macOS ${{ matrix.macos }}
+    strategy:
+      fail-fast: false
+      matrix:
+        macos: [14, 26]
+        include:
+          - macos: 14
+            runner: macos-14
+          - macos: 26
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Select release Xcode on macOS 26
+        if: matrix.macos == 26
+        run: |
+          candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
+          if [[ -n "$candidate" ]]; then sudo xcode-select --switch "$candidate/Contents/Developer"; fi
+          ./Scripts/check-toolchain.sh
+      - name: Record compatibility toolchain on macOS 14
+        if: matrix.macos == 14
+        run: xcodebuild -version
+      - name: Build, test, and inspect diagnostics
+        shell: zsh {0}
+        run: |
+          set -euo pipefail
+          result="$RUNNER_TEMP/CodexGauge-${{ matrix.macos }}.xcresult"
+          log_file="$RUNNER_TEMP/xcodebuild-${{ matrix.macos }}.log"
+          started="$(date '+%Y-%m-%d %H:%M:%S')"
+          xcodebuild test \
+            -project CodexGauge.xcodeproj \
+            -scheme CodexGauge \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -resultBundlePath "$result" \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= 2>&1 | tee "$log_file"
+          xcodebuild build \
+            -project CodexGauge.xcodeproj \
+            -scheme CodexGauge \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$log_file"
+          xcodebuild archive \
+            -project CodexGauge.xcodeproj \
+            -scheme CodexGauge \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/CodexGauge-unsigned.xcarchive" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$log_file"
+          log show --start "$started" --style compact \
+            --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
+            > "$RUNNER_TEMP/runtime-${{ matrix.macos }}.log" || true
+          if rg -i 'Invalid frame dimension|Custom UnitPoint values are not supported|main actor-isolated.*nonisolated|main-thread XCTest|accessibility.*failed|warning:.*(Sendable|actor-isolated|concurr)' \
+            "$log_file" "$RUNNER_TEMP/runtime-${{ matrix.macos }}.log"; then
+            echo "Release-blocking warning or runtime fault detected." >&2
+            exit 1
+          fi
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: failure-macos-${{ matrix.macos }}
+          path: |
+            ${{ runner.temp }}/CodexGauge-${{ matrix.macos }}.xcresult
+            ${{ runner.temp }}/xcodebuild-${{ matrix.macos }}.log
+            ${{ runner.temp }}/runtime-${{ matrix.macos }}.log
+          if-no-files-found: ignore
+          retention-days: 14

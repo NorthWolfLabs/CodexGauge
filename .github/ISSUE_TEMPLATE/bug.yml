@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a reproducible CodexGauge problem
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: checkboxes
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I removed private task content and credentials.
+          required: true
+  - type: input
+    attributes:
+      label: CodexGauge version
+      placeholder: 1.0.0
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Mac and macOS
+      placeholder: M4 Mac mini, macOS 26.0
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Include expected behavior and exact reproduction steps.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Relevant diagnostics
+      description: Do not attach rollout files, prompts, answers, credentials, or private keys.

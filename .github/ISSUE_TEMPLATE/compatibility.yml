@@ -1,0 +1,33 @@
+name: Compatibility report
+description: Report behavior on a supported Mac or macOS release
+title: "[Compatibility]: "
+labels: [compatibility]
+body:
+  - type: input
+    attributes:
+      label: Mac model
+      placeholder: M2 MacBook Air
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: macOS version and build
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: CodexGauge and ChatGPT/Codex versions
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Result
+      options: [Works, Works with limitations, Does not work]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Details
+      description: Describe discovery, allowances, task activity, notifications, and any user-visible errors without including private content.
+    validations:
+      required: true

@@ -1,0 +1,329 @@
+import AppKit
+import Foundation
+import Observation
+
+enum RefreshBackoff {
+    static func delay(forFailureCount failureCount: Int) -> TimeInterval {
+        guard failureCount > 0 else { return 0 }
+        return min(120, pow(2, Double(min(7, failureCount))))
+    }
+}
+
+@MainActor
+@Observable
+final class AppState {
+    let settings: SettingsStore
+    private let locator: any CodexExecutableLocating
+    private let cache: SnapshotCache
+    private let notifications: any NotificationScheduling
+    private let clock: any ClockProviding
+
+    private var accountProvider: (any AccountTelemetryProviding)?
+    private var sessionProvider: (any SessionTelemetryProviding)?
+    private var refreshLoop: Task<Void, Never>?
+    private var activityLoop: Task<Void, Never>?
+    private var eventLoop: Task<Void, Never>?
+    private var sessionLoop: Task<Void, Never>?
+    private var eventRefreshTask: Task<Void, Never>?
+    private var failureCount = 0
+    private var accountIdentity: AccountIdentity?
+    private var accountActivity: AccountActivity = .empty
+
+    var accountSnapshot: AccountSnapshot?
+    var conversations: [ConversationTelemetry] = []
+    var hasLoadedConversations = false
+    var freshness: DataFreshness = .loading
+    var errorMessage: String?
+    var executableURL: URL?
+    var isRefreshing = false
+    var lastRefreshAttempt: Date?
+    var notificationAuthorization: NotificationAuthorizationState = .notDetermined
+    var executableValidationMessage: String?
+
+    init(
+        settings: SettingsStore = SettingsStore(),
+        locator: any CodexExecutableLocating = DefaultCodexExecutableLocator(),
+        cache: SnapshotCache = SnapshotCache(),
+        notifications: (any NotificationScheduling)? = nil,
+        clock: any ClockProviding = SystemClock(),
+        startImmediately: Bool = true
+    ) {
+        self.settings = settings
+        self.locator = locator
+        self.cache = cache
+        self.clock = clock
+        self.notifications = notifications ?? UserNotificationScheduler(clock: clock)
+        if startImmediately {
+            Task { await bootstrap() }
+        }
+    }
+
+    var remainingPercent: Int? { accountSnapshot?.limitingWindow?.remainingPercent }
+    var currentDate: Date { clock.now }
+    var displayFreshness: DataFreshness {
+        guard freshness == .fresh, let fetchedAt = accountSnapshot?.fetchedAt else { return freshness }
+        let maximumAge = max(180, settings.refreshInterval * 3)
+        return clock.now.timeIntervalSince(fetchedAt) > maximumAge ? .stale : .fresh
+    }
+
+    var menuBarTitle: String {
+        guard let remainingPercent else { return "—" }
+        return "\(remainingPercent)%"
+    }
+
+    var menuBarSymbol: String {
+        switch displayFreshness {
+        case .loading: "gauge.with.needle"
+        case .fresh: "gauge.with.needle"
+        case .stale: "exclamationmark.triangle.fill"
+        case .unavailable: "questionmark.circle"
+        }
+    }
+
+    var menuBarAccessibilityLabel: String {
+        guard let remainingPercent, let window = accountSnapshot?.limitingWindow else {
+            return "Codex allowances unavailable"
+        }
+        let state = displayFreshness == .stale ? ", data is stale" : ""
+        return "Codex \(window.durationName.lowercased()) allowance, \(remainingPercent) percent remaining\(state)"
+    }
+
+    func bootstrap() async {
+        if let cached = await cache.load() {
+            accountSnapshot = cached
+            accountActivity = cached.activity
+            freshness = .stale
+        }
+        notificationAuthorization = await notifications.authorizationStatus()
+        await connect()
+    }
+
+    func reconnect() async {
+        await stopProviders()
+        executableURL = nil
+        await connect()
+    }
+
+    func refresh() async {
+        await refreshLimits()
+    }
+
+    private func refreshLimits() async {
+        guard let accountProvider, !isRefreshing else { return }
+        isRefreshing = true
+        lastRefreshAttempt = clock.now
+        defer { isRefreshing = false }
+        do {
+            let limits = try await accountProvider.fetchRateLimits()
+            let identity: AccountIdentity
+            if let accountIdentity {
+                identity = accountIdentity
+            } else if let snapshot = accountSnapshot {
+                identity = AccountIdentity(accountType: snapshot.accountType, plan: snapshot.plan)
+            } else {
+                identity = try await accountProvider.fetchAccountIdentity()
+            }
+            accountIdentity = identity
+            let snapshot = AccountSnapshot(
+                accountType: identity.accountType,
+                plan: identity.plan ?? limits.plan,
+                buckets: limits.buckets,
+                earnedResetCount: limits.earnedResetCount,
+                activity: accountActivity,
+                fetchedAt: limits.fetchedAt
+            )
+            accountSnapshot = snapshot
+            freshness = .fresh
+            errorMessage = nil
+            failureCount = 0
+            await cache.save(snapshot)
+            if settings.quotaNotificationsEnabled {
+                await notifications.evaluate(snapshot: snapshot, thresholds: settings.notificationThresholds)
+            }
+        } catch {
+            failureCount += 1
+            errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            freshness = accountSnapshot == nil ? .unavailable : .stale
+        }
+    }
+
+    func requestNotificationPermission() async -> Bool {
+        let granted = await notifications.requestAuthorization()
+        notificationAuthorization = await notifications.authorizationStatus()
+        return granted
+    }
+
+    func refreshNotificationAuthorization() async {
+        notificationAuthorization = await notifications.authorizationStatus()
+    }
+
+    func openNotificationSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func validateAndUseExecutable(_ url: URL) async -> Bool {
+        guard FileManager.default.isExecutableFile(atPath: url.path) else {
+            executableValidationMessage = "Choose an executable Codex helper."
+            return false
+        }
+        let candidate = CodexAppServerClient(executableURL: url, codexHomeURL: settings.codexHomeURL, clock: clock)
+        do {
+            try await candidate.validateConnection()
+            await candidate.stop()
+            settings.executableOverride = url.path
+            executableValidationMessage = "Codex helper verified."
+            await reconnect()
+            executableValidationMessage = nil
+            return true
+        } catch {
+            await candidate.stop()
+            executableValidationMessage = "This executable could not start the Codex app server."
+            return false
+        }
+    }
+
+    func rescheduleRefresh() {
+        guard accountProvider != nil else { return }
+        refreshLoop?.cancel()
+        startRefreshLoop()
+    }
+
+    func openChatGPT() {
+        let locations = [
+            "/Applications/ChatGPT.app",
+            "\(NSHomeDirectory())/Applications/ChatGPT.app"
+        ]
+        if let path = locations.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: .init())
+        }
+    }
+
+    private func connect() async {
+        guard let executable = locator.locate(override: settings.executableOverride) else {
+            executableURL = nil
+            hasLoadedConversations = true
+            freshness = accountSnapshot == nil ? .unavailable : .stale
+            errorMessage = CodexAppServerError.executableUnavailable.localizedDescription
+            return
+        }
+        executableURL = executable
+        hasLoadedConversations = false
+        let account = CodexAppServerClient(executableURL: executable, codexHomeURL: settings.codexHomeURL, clock: clock)
+        let sessions = LocalSessionMonitor(codexHomeURL: settings.codexHomeURL, clock: clock)
+        accountProvider = account
+        sessionProvider = sessions
+        startLoops(account: account, sessions: sessions)
+        await refreshIdentityAndActivity(using: account)
+        await refreshLimits()
+    }
+
+    private func startLoops(
+        account: any AccountTelemetryProviding,
+        sessions: any SessionTelemetryProviding
+    ) {
+        startRefreshLoop()
+        activityLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(900))
+                guard !Task.isCancelled else { break }
+                await self?.refreshIdentityAndActivity(using: account)
+            }
+        }
+        eventLoop = Task { [weak self] in
+            let events = await account.events()
+            for await event in events {
+                guard !Task.isCancelled else { break }
+                switch event.kind {
+                case .rateLimitsChanged:
+                    self?.scheduleEventLimitRefresh()
+                case .accountChanged:
+                    await self?.refreshIdentityAndActivity(using: account)
+                    await self?.refreshLimits()
+                }
+            }
+        }
+        sessionLoop = Task { [weak self] in
+            let stream = await sessions.snapshots()
+            for await telemetry in stream {
+                guard !Task.isCancelled else { break }
+                await MainActor.run {
+                    self?.conversations = telemetry
+                    self?.hasLoadedConversations = true
+                }
+                if await MainActor.run(body: { self?.settings.attentionNotificationsEnabled == true }) {
+                    await self?.notifications.evaluate(conversations: telemetry)
+                }
+            }
+        }
+    }
+
+    private func startRefreshLoop() {
+        refreshLoop = Task { [weak self] in
+            while !Task.isCancelled {
+                let seconds = await MainActor.run { self?.settings.refreshInterval ?? 60 }
+                try? await Task.sleep(for: .seconds(seconds))
+                guard !Task.isCancelled else { break }
+                await self?.refreshWithBackoff()
+            }
+        }
+    }
+
+    private func refreshWithBackoff() async {
+        let delay = RefreshBackoff.delay(forFailureCount: failureCount)
+        if delay > 0 {
+            try? await Task.sleep(for: .seconds(delay))
+        }
+        await refresh()
+    }
+
+    private func scheduleEventLimitRefresh() {
+        eventRefreshTask?.cancel()
+        eventRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            await self?.refreshLimits()
+        }
+    }
+
+    private func refreshIdentityAndActivity(using account: any AccountTelemetryProviding) async {
+        do {
+            accountIdentity = try await account.fetchAccountIdentity()
+        } catch {
+            if accountSnapshot == nil {
+                errorMessage = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
+        }
+        do {
+            let activity = try await account.fetchAccountActivity()
+            accountActivity = activity
+            if var snapshot = accountSnapshot {
+                snapshot.activity = activity
+                accountSnapshot = snapshot
+                await cache.save(snapshot)
+            }
+        } catch {
+            // Aggregate activity is supplemental; retain the last successful value.
+        }
+    }
+
+    private func stopProviders() async {
+        refreshLoop?.cancel()
+        activityLoop?.cancel()
+        eventLoop?.cancel()
+        sessionLoop?.cancel()
+        eventRefreshTask?.cancel()
+        refreshLoop = nil
+        activityLoop = nil
+        eventLoop = nil
+        sessionLoop = nil
+        eventRefreshTask = nil
+        await accountProvider?.stop()
+        await sessionProvider?.stop()
+        accountProvider = nil
+        accountIdentity = nil
+        sessionProvider = nil
+        conversations = []
+        hasLoadedConversations = false
+    }
+}

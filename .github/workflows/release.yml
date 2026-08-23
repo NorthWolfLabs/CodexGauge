@@ -1,0 +1,160 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codexgauge-release
+  cancel-in-progress: false
+
+jobs:
+  compatibility:
+    name: Compatibility · macOS ${{ matrix.macos }}
+    strategy:
+      fail-fast: false
+      matrix:
+        macos: [14, 26]
+        include:
+          - macos: 14
+            runner: macos-14
+          - macos: 26
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Select release Xcode on macOS 26
+        if: matrix.macos == 26
+        run: |
+          candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
+          if [[ -n "$candidate" ]]; then sudo xcode-select --switch "$candidate/Contents/Developer"; fi
+          ./Scripts/check-toolchain.sh
+      - name: Test tagged source
+        shell: zsh {0}
+        run: |
+          set -euo pipefail
+          log_file="$RUNNER_TEMP/release-gate-${{ matrix.macos }}.log"
+          started="$(date '+%Y-%m-%d %H:%M:%S')"
+          xcodebuild test \
+            -project CodexGauge.xcodeproj \
+            -scheme CodexGauge \
+            -configuration Release \
+            -destination 'platform=macOS,arch=arm64' \
+            -resultBundlePath "$RUNNER_TEMP/Release-${{ matrix.macos }}.xcresult" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= 2>&1 | tee "$log_file"
+          xcodebuild archive \
+            -project CodexGauge.xcodeproj \
+            -scheme CodexGauge \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$RUNNER_TEMP/CodexGauge-${{ matrix.macos }}.xcarchive" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$log_file"
+          log show --start "$started" --style compact \
+            --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
+            > "$RUNNER_TEMP/release-runtime-${{ matrix.macos }}.log" || true
+          if rg -i 'Invalid frame dimension|Custom UnitPoint values are not supported|main actor-isolated.*nonisolated|main-thread XCTest|accessibility.*failed|warning:.*(Sendable|actor-isolated|concurr)' \
+            "$log_file" "$RUNNER_TEMP/release-runtime-${{ matrix.macos }}.log"; then
+            echo "Release-blocking warning or runtime fault detected." >&2
+            exit 1
+          fi
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-gate-macos-${{ matrix.macos }}
+          path: |
+            ${{ runner.temp }}/Release-${{ matrix.macos }}.xcresult
+            ${{ runner.temp }}/release-gate-${{ matrix.macos }}.log
+            ${{ runner.temp }}/release-runtime-${{ matrix.macos }}.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  release:
+    needs: compatibility
+    runs-on: macos-26
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Select required stable Xcode
+        run: |
+          candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
+          if [[ -n "$candidate" ]]; then sudo xcode-select --switch "$candidate/Contents/Developer"; fi
+          ./Scripts/check-toolchain.sh
+      - name: Fetch release credentials from Infisical
+        uses: Infisical/secrets-action@a663da43e1541832614bfd9dcf9ab67381ea2b98 # v1.0.12
+        with:
+          method: oidc
+          identity-id: ${{ vars.INFISICAL_IDENTITY_ID }}
+          oidc-audience: https://github.com/NorthWolfLabs
+          project-slug: ${{ vars.INFISICAL_PROJECT_SLUG }}
+          env-slug: prod
+          secret-path: ${{ vars.INFISICAL_SECRET_PATH }}
+      - name: Create ephemeral signing environment
+        shell: zsh {0}
+        run: |
+          set -euo pipefail
+          release_temp="$(mktemp -d "$RUNNER_TEMP/codexgauge-release.XXXXXX")"
+          keychain="$release_temp/release.keychain-db"
+          keychain_password="$(openssl rand -hex 32)"
+          p12="$release_temp/developer-id.p12"
+          api_key="$release_temp/AuthKey_${ASC_API_KEY_ID}.p8"
+          print -rn -- "$DEVELOPER_ID_P12_BASE64" | base64 -D > "$p12"
+          print -rn -- "$ASC_API_KEY_P8_BASE64" | base64 -D > "$api_key"
+          chmod 600 "$p12" "$api_key"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$p12" -k "$keychain" -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          {
+            echo "RELEASE_TEMP=$release_temp"
+            echo "RELEASE_KEYCHAIN=$keychain"
+            echo "RELEASE_KEYCHAIN_PASSWORD=$keychain_password"
+            echo "ASC_API_KEY_PATH=$api_key"
+          } >> "$GITHUB_ENV"
+      - name: Build, notarize, and verify release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: ./Scripts/release.sh all
+      - name: Create draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: zsh {0}
+        run: |
+          set -euo pipefail
+          release_root=".build/release/${GITHUB_REF_NAME}"
+          prerelease=()
+          [[ "$GITHUB_REF_NAME" == *-rc.* ]] && prerelease=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" \
+            "$release_root/CodexGauge-$GITHUB_REF_NAME.dmg" \
+            "$release_root/SHA256SUMS" \
+            "$release_root/build-manifest.json" \
+            "$release_root/CodexGauge-$GITHUB_REF_NAME-dSYMs.zip" \
+            "$release_root/app-notarization.json" \
+            "$release_root/dmg-notarization.json" \
+            --draft --generate-notes --verify-tag "${prerelease[@]}"
+      - name: Destroy release credentials
+        if: always()
+        shell: zsh {0}
+        run: |
+          if [[ -n "${RELEASE_KEYCHAIN:-}" ]]; then
+            security list-keychains -d user -s login.keychain-db || true
+            security delete-keychain "$RELEASE_KEYCHAIN" || true
+          fi
+          if [[ -n "${RELEASE_TEMP:-}" && "$RELEASE_TEMP" == "$RUNNER_TEMP"/codexgauge-release.* ]]; then
+            find "$RELEASE_TEMP" -type f -exec sh -c 'for file do size=$(stat -f %z "$file" 2>/dev/null || echo 0); if [ "$size" -gt 0 ]; then dd if=/dev/zero of="$file" bs=4096 count=$(((size + 4095) / 4096)) conv=notrunc 2>/dev/null || true; fi; done' sh {} +
+            rm -rf "$RELEASE_TEMP"
+          fi

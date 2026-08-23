@@ -188,7 +188,7 @@ final class CodexGaugeUITests: XCTestCase {
         let settingsWindow = app.windows["General"]
         XCTAssertTrue(settingsWindow.waitForExistence(timeout: 3))
         settingsWindow.buttons["Notifications"].click()
-        XCTAssertTrue(app.windows["Notifications"].staticTexts["Denied"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.windows["Notifications"].staticTexts["Not allowed"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["Open Notification Settings"].exists)
     }
 

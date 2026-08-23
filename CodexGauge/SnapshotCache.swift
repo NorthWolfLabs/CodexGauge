@@ -15,7 +15,12 @@ actor SnapshotCache {
     }
 
     func load() -> AccountSnapshot? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
+        let values = try? fileURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
+        guard values?.isRegularFile == true,
+              values?.isSymbolicLink != true,
+              let size = values?.fileSize,
+              size <= 4 * 1_024 * 1_024,
+              let data = try? Data(contentsOf: fileURL, options: .mappedIfSafe) else { return nil }
         return try? decoder.decode(AccountSnapshot.self, from: data)
     }
 

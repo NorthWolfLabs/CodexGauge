@@ -48,7 +48,15 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     private var watcher: RecursiveFSEventsWatcher?
     private var continuation: AsyncStream<[ConversationTelemetry]>.Continuation?
     private var maintenanceTask: Task<Void, Never>?
+    private var filesystemRefreshTask: Task<Void, Never>?
+    private var pendingFilesystemPaths = Set<String>()
+    private var processingCursor = 0
     private var started = false
+
+    private static let maximumTrackedSessions = 200
+    private static let maximumFilesPerPass = 200
+    private static let maximumBytesPerPass = 16 * 1_024 * 1_024
+    private static let maximumBytesPerFile = 4 * 1_024 * 1_024
 
     init(codexHomeURL: URL, clock: any ClockProviding = SystemClock()) {
         self.codexHomeURL = codexHomeURL
@@ -70,6 +78,9 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     func stop() async {
         maintenanceTask?.cancel()
         maintenanceTask = nil
+        filesystemRefreshTask?.cancel()
+        filesystemRefreshTask = nil
+        pendingFilesystemPaths.removeAll()
         watcher?.stop()
         watcher = nil
         continuation?.finish()
@@ -88,7 +99,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         emitSnapshot()
 
         watcher = RecursiveFSEventsWatcher(paths: [sessionsURL.path, locksURL.path]) { [weak self] paths in
-            Task { await self?.filesystemChanged(paths) }
+            Task { await self?.queueFilesystemChanges(paths) }
         }
         watcher?.start()
 
@@ -109,7 +120,20 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         emitSnapshot()
     }
 
-    private func filesystemChanged(_ paths: [String]) {
+    private func queueFilesystemChanges(_ paths: [String]) {
+        pendingFilesystemPaths.formUnion(paths.prefix(512))
+        guard filesystemRefreshTask == nil else { return }
+        filesystemRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+            await self?.flushFilesystemChanges()
+        }
+    }
+
+    private func flushFilesystemChanges() {
+        filesystemRefreshTask = nil
+        let paths = Array(pendingFilesystemPaths)
+        pendingFilesystemPaths.removeAll(keepingCapacity: true)
         var shouldDiscover = false
         for path in paths {
             if path.hasSuffix(".jsonl") {
@@ -147,33 +171,56 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
             if $0.locked != $1.locked { return $0.locked }
             return $0.modified > $1.modified
         }
-        for candidate in candidates.prefix(500) {
+        for candidate in candidates.prefix(Self.maximumTrackedSessions) {
             track(path: candidate.url.path)
         }
     }
 
     private func track(path: String) {
-        guard path.hasSuffix(".jsonl"), sessions[path] == nil else { return }
-        if sessions.count >= 500,
+        let original = URL(fileURLWithPath: path).standardizedFileURL
+        let originalValues = try? original.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+        guard original.pathExtension == "jsonl",
+              originalValues?.isRegularFile == true,
+              originalValues?.isSymbolicLink != true else { return }
+        let candidate = original.resolvingSymlinksInPath()
+        let root = sessionsURL.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        guard candidate.path.hasPrefix(root), sessions[candidate.path] == nil else { return }
+        if sessions.count >= Self.maximumTrackedSessions,
            let oldest = sessions
             .filter({ !lockedIDs.contains($0.value.id) })
             .min(by: { $0.value.lastActivity < $1.value.lastActivity })?.key {
             sessions.removeValue(forKey: oldest)
         }
-        guard sessions.count < 500 else { return }
-        sessions[path] = Session(path: path)
+        guard sessions.count < Self.maximumTrackedSessions else { return }
+        sessions[candidate.path] = Session(path: candidate.path)
     }
 
     private func processTrackedSessions() {
-        for path in Array(sessions.keys) {
-            process(path: path)
+        let paths = sessions.keys.sorted()
+        guard !paths.isEmpty else {
+            processingCursor = 0
+            return
+        }
+        processingCursor %= paths.count
+        var processedFiles = 0
+        var processedBytes = 0
+        while processedFiles < min(Self.maximumFilesPerPass, paths.count),
+              processedBytes < Self.maximumBytesPerPass {
+            let path = paths[processingCursor]
+            let remaining = Self.maximumBytesPerPass - processedBytes
+            let budget = min(Self.maximumBytesPerFile, remaining)
+            processedBytes += process(path: path, byteBudget: budget)
+            processedFiles += 1
+            processingCursor = (processingCursor + 1) % paths.count
         }
     }
 
-    private func process(path: String) {
+    @discardableResult
+    private func process(path: String, byteBudget: Int) -> Int {
         guard var session = sessions[path],
               let attributes = try? FileManager.default.attributesOfItem(atPath: path),
-              let size = attributes[.size] as? NSNumber else { return }
+              let size = attributes[.size] as? NSNumber,
+              byteBudget > 0 else { return 0 }
         let fileSize = size.uint64Value
 
         if fileSize < session.offset {
@@ -193,14 +240,15 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         }
         guard fileSize > session.offset else {
             sessions[path] = session
-            return
+            return 0
         }
 
         do {
             let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
             defer { try? handle.close() }
-            let maximumRead = UInt64(8 * 1_024 * 1_024)
-            let headerRead = UInt64(256 * 1_024)
+            let maximumRead = UInt64(byteBudget)
+            let headerRead = min(UInt64(256 * 1_024), maximumRead / 4)
+            var bytesRead = 0
 
             if session.offset == 0, fileSize > maximumRead + headerRead {
                 // The first rollout record carries the stable session metadata, while the
@@ -208,14 +256,17 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                 // replaying a very large conversation for minutes at launch.
                 try handle.seek(toOffset: 0)
                 if let header = try handle.read(upToCount: Int(headerRead)), !header.isEmpty {
+                    bytesRead += header.count
                     session.offset = UInt64(header.count)
                     session.remainder.append(header)
                     parseLines(into: &session)
                 }
 
-                let tailOffset = fileSize - maximumRead
+                let tailRead = maximumRead - UInt64(bytesRead)
+                let tailOffset = fileSize - tailRead
                 try handle.seek(toOffset: tailOffset)
-                if var tail = try handle.read(upToCount: Int(maximumRead)), !tail.isEmpty {
+                if var tail = try handle.read(upToCount: Int(tailRead)), !tail.isEmpty {
+                    bytesRead += tail.count
                     session.remainder.removeAll(keepingCapacity: true)
                     session.pulses.removeAll(keepingCapacity: true)
                     session.latestPulseTotal = nil
@@ -227,18 +278,19 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                     parseLines(into: &session)
                 }
                 sessions[path] = session
-                return
+                return bytesRead
             }
 
             try handle.seek(toOffset: session.offset)
             let count = Int(min(fileSize - session.offset, maximumRead))
-            guard let newData = try handle.read(upToCount: count), !newData.isEmpty else { return }
+            guard let newData = try handle.read(upToCount: count), !newData.isEmpty else { return 0 }
             session.offset += UInt64(newData.count)
             session.remainder.append(newData)
             parseLines(into: &session)
             sessions[path] = session
+            return newData.count
         } catch {
-            return
+            return 0
         }
     }
 
@@ -499,9 +551,19 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
 
     private func loadTitles() {
         let indexURL = codexHomeURL.appending(path: "session_index.jsonl")
-        let modified = try? indexURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        let values = try? indexURL.resourceValues(forKeys: [
+            .contentModificationDateKey,
+            .fileSizeKey,
+            .isRegularFileKey,
+            .isSymbolicLinkKey
+        ])
+        let modified = values?.contentModificationDate
         guard modified != titleIndexModificationDate else { return }
-        guard let data = try? Data(contentsOf: indexURL), data.count <= 16 * 1_024 * 1_024 else { return }
+        guard values?.isRegularFile == true,
+              values?.isSymbolicLink != true,
+              let size = values?.fileSize,
+              size <= 16 * 1_024 * 1_024,
+              let data = try? Data(contentsOf: indexURL, options: .mappedIfSafe) else { return }
         for line in data.split(separator: 0x0A) {
             guard let title = try? Self.decoder.decode(ThreadTitleRecord.self, from: line) else { continue }
             titles[title.id] = title.threadName

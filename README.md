@@ -101,21 +101,9 @@ CodexGauge retains the last successful account snapshot while offline or signed 
 
 Check **Settings > Notifications**. If permission is denied, use **Open Notification Settings**. Each allowance threshold is sent once per reset cycle. A task attention alert is sent only for an exact local input or approval request.
 
-## Release process
+## Authentic releases
 
-`Scripts/release.sh` is a staged release gate. The default `all` stage requires a clean, exactly tagged tree; runs tests; archives and exports an arm64 Developer ID app; validates signatures, hardened runtime, timestamps, architecture, and entitlements; notarizes and staples the app; creates a versioned DMG with an Applications alias; signs, notarizes, and staples the DMG; runs Gatekeeper; and emits SHA-256 checksums, dSYMs, notarization logs, and a build manifest.
-
-Local notarization can use an existing Keychain profile:
-
-```sh
-NOTARYTOOL_PROFILE=NorthWolfLabs-Notary ./Scripts/release.sh all
-```
-
-CI uses an App Store Connect API key materialized into a temporary directory. The release workflow imports the Developer ID certificate into an ephemeral Keychain and removes both unconditionally.
-
-Release candidates use tags such as `v1.0.0-rc.1`. The stable `v1.0.0` tag is created only after installing the notarized release candidate on clean macOS 14 and macOS 26 systems. `CURRENT_PROJECT_VERSION` is an integer that increases for every distributed build and is never reused.
-
-The protected `release` GitHub Environment requires reviewer approval, permits self-approval while the project has one maintainer, and limits deployments to `v*` tags. Its five Apple release credentials are scoped to that Environment as described in [RELEASING.md](RELEASING.md).
+Official downloads are published through this repository's GitHub Releases page. Release artifacts are signed by North Wolf Labs LLC, notarized by Apple, and accompanied by SHA-256 checksums. Private signing and publication procedures are intentionally not documented in this public repository.
 
 ## Contributing and support
 

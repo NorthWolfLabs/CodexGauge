@@ -215,7 +215,11 @@ struct CodexGaugeTests {
         try Data(script.utf8).write(to: executable)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
 
-        let client = CodexAppServerClient(executableURL: executable, codexHomeURL: temporary)
+        let client = CodexAppServerClient(
+            executableURL: executable,
+            codexHomeURL: temporary,
+            skipTrustValidation: true
+        )
         let identity = try await client.fetchAccountIdentity()
         let limits = try await client.fetchRateLimits()
         let activity = try await client.fetchAccountActivity()

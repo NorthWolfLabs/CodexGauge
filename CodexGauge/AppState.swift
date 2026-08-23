@@ -163,16 +163,19 @@ final class AppState {
     }
 
     func validateAndUseExecutable(_ url: URL) async -> Bool {
-        guard FileManager.default.isExecutableFile(atPath: url.path) else {
-            executableValidationMessage = "Choose an executable Codex helper."
+        let trustedURL: URL
+        do {
+            trustedURL = try CodexExecutableTrust.validate(url)
+        } catch {
+            executableValidationMessage = (error as? LocalizedError)?.errorDescription ?? "Choose a Codex helper signed by OpenAI."
             return false
         }
-        let candidate = CodexAppServerClient(executableURL: url, codexHomeURL: settings.codexHomeURL, clock: clock)
+        let candidate = CodexAppServerClient(executableURL: trustedURL, codexHomeURL: settings.codexHomeURL, clock: clock)
         do {
             try await candidate.validateConnection()
             await candidate.stop()
-            settings.executableOverride = url.path
-            executableValidationMessage = "Codex helper verified."
+            settings.executableOverride = trustedURL.path
+            executableValidationMessage = "OpenAI-signed Codex helper verified."
             await reconnect()
             executableValidationMessage = nil
             return true

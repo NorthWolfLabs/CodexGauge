@@ -1,5 +1,72 @@
 import Foundation
 
+private final class BoundedPipeBuffer: @unchecked Sendable {
+    enum AppendResult {
+        case buffered
+        case scheduleDrain
+        case overflow
+        case closed
+    }
+
+    private let lock = NSLock()
+    private let maximumBytes: Int
+    private var chunks: [Data] = []
+    private var byteCount = 0
+    private var drainScheduled = false
+    private var isClosed = false
+
+    init(maximumBytes: Int) {
+        self.maximumBytes = maximumBytes
+    }
+
+    func append(_ data: Data) -> AppendResult {
+        lock.withLock {
+            guard !isClosed else { return .closed }
+            guard byteCount <= maximumBytes - data.count else {
+                isClosed = true
+                chunks.removeAll(keepingCapacity: false)
+                byteCount = 0
+                return .overflow
+            }
+            chunks.append(data)
+            byteCount += data.count
+            if drainScheduled { return .buffered }
+            drainScheduled = true
+            return .scheduleDrain
+        }
+    }
+
+    func take() -> Data? {
+        lock.withLock {
+            guard !chunks.isEmpty else {
+                drainScheduled = false
+                return nil
+            }
+            let data = chunks.removeFirst()
+            byteCount -= data.count
+            return data
+        }
+    }
+
+    func reset() {
+        lock.withLock {
+            chunks.removeAll(keepingCapacity: false)
+            byteCount = 0
+            drainScheduled = false
+            isClosed = false
+        }
+    }
+
+    func close() {
+        lock.withLock {
+            isClosed = true
+            chunks.removeAll(keepingCapacity: false)
+            byteCount = 0
+            drainScheduled = false
+        }
+    }
+}
+
 enum CodexAppServerError: LocalizedError, Sendable {
     case executableUnavailable
     case launchFailed(String)
@@ -30,21 +97,29 @@ actor CodexAppServerClient: AccountTelemetryProviding {
     private let executableURL: URL
     private let codexHomeURL: URL
     private let clock: any ClockProviding
+    private let skipTrustValidation: Bool
     private var process: Process?
     private var inputHandle: FileHandle?
     private var outputHandle: FileHandle?
     private var errorHandle: FileHandle?
     private var outputBuffer = Data()
+    private let queuedOutput = BoundedPipeBuffer(maximumBytes: 1_024 * 1_024)
     private var pending: [Int: PendingRequest] = [:]
     private var nextRequestID = 1
     private var initialized = false
     private var generation = 0
     private var eventContinuations: [UUID: AsyncStream<AppServerEvent>.Continuation] = [:]
 
-    init(executableURL: URL, codexHomeURL: URL, clock: any ClockProviding = SystemClock()) {
+    init(
+        executableURL: URL,
+        codexHomeURL: URL,
+        clock: any ClockProviding = SystemClock(),
+        skipTrustValidation: Bool = false
+    ) {
         self.executableURL = executableURL
         self.codexHomeURL = codexHomeURL
         self.clock = clock
+        self.skipTrustValidation = skipTrustValidation
     }
 
     func events() async -> AsyncStream<AppServerEvent> {
@@ -103,6 +178,7 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         outputHandle = nil
         errorHandle = nil
         outputBuffer.removeAll(keepingCapacity: false)
+        queuedOutput.close()
         failPending(with: CodexAppServerError.connectionClosed)
         eventContinuations.values.forEach { $0.finish() }
         eventContinuations.removeAll()
@@ -127,7 +203,10 @@ actor CodexAppServerClient: AccountTelemetryProviding {
     }
 
     private func startProcess() throws {
-        guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
+        let launchURL = skipTrustValidation
+            ? executableURL.standardizedFileURL.resolvingSymlinksInPath()
+            : try CodexExecutableTrust.validate(executableURL)
+        guard FileManager.default.isExecutableFile(atPath: launchURL.path) else {
             throw CodexAppServerError.executableUnavailable
         }
 
@@ -137,16 +216,19 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         let outputPipe = Pipe()
         let errorPipe = Pipe()
         let child = Process()
-        child.executableURL = executableURL
+        child.executableURL = launchURL
         child.arguments = ["app-server", "--listen", "stdio://"]
         child.standardInput = inputPipe
         child.standardOutput = outputPipe
         child.standardError = errorPipe
 
-        var environment = ProcessInfo.processInfo.environment
+        let inherited = ProcessInfo.processInfo.environment
+        var environment: [String: String] = [:]
+        for key in ["HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE"] {
+            environment[key] = inherited[key]
+        }
         environment["CODEX_HOME"] = codexHomeURL.path
-        let executableDirectory = executableURL.deletingLastPathComponent().path
-        environment["PATH"] = [executableDirectory, environment["PATH"] ?? ""].joined(separator: ":")
+        environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         child.environment = environment
         child.terminationHandler = { [weak self] _ in
             Task { await self?.processTerminated(generation: currentGeneration) }
@@ -164,11 +246,20 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         errorHandle = errorPipe.fileHandleForReading
         initialized = false
         outputBuffer.removeAll(keepingCapacity: true)
+        queuedOutput.reset()
 
         outputHandle?.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { return }
-            Task { await self?.receive(data, generation: currentGeneration) }
+            guard let self else { return }
+            switch self.queuedOutput.append(data) {
+            case .scheduleDrain:
+                Task { await self.drainOutput(generation: currentGeneration) }
+            case .overflow:
+                Task { await self.rejectExcessiveOutput(generation: currentGeneration) }
+            case .buffered, .closed:
+                break
+            }
         }
         // Codex can be verbose on stderr. Always drain it so the helper cannot deadlock.
         errorHandle?.readabilityHandler = { handle in
@@ -222,18 +313,51 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         try inputHandle.write(contentsOf: payload)
     }
 
-    private func receive(_ data: Data, generation receivedGeneration: Int) {
-        guard receivedGeneration == generation else { return }
+    private func drainOutput(generation receivedGeneration: Int) {
+        while let data = queuedOutput.take() {
+            guard receive(data, generation: receivedGeneration) else { return }
+        }
+    }
+
+    private func receive(_ data: Data, generation receivedGeneration: Int) -> Bool {
+        guard receivedGeneration == generation else { return false }
+        guard outputBuffer.count <= 1_024 * 1_024 - data.count else {
+            rejectExcessiveOutput(generation: receivedGeneration)
+            return false
+        }
         outputBuffer.append(data)
+        var processedFrames = 0
         while let newline = outputBuffer.firstIndex(of: 0x0A) {
+            guard newline <= 1_024 * 1_024, processedFrames < 512 else {
+                rejectExcessiveOutput(generation: receivedGeneration)
+                return false
+            }
             let line = outputBuffer[..<newline]
             outputBuffer.removeSubrange(...newline)
             guard !line.isEmpty else { continue }
             handleLine(Data(line))
+            processedFrames += 1
         }
-        if outputBuffer.count > 8 * 1_024 * 1_024 {
-            outputBuffer.removeAll(keepingCapacity: true)
-        }
+        return true
+    }
+
+    private func rejectExcessiveOutput(generation receivedGeneration: Int) {
+        guard receivedGeneration == generation else { return }
+        generation += 1
+        initialized = false
+        queuedOutput.close()
+        outputHandle?.readabilityHandler = nil
+        errorHandle?.readabilityHandler = nil
+        inputHandle?.closeFile()
+        outputHandle?.closeFile()
+        errorHandle?.closeFile()
+        if let process, process.isRunning { process.terminate() }
+        process = nil
+        inputHandle = nil
+        outputHandle = nil
+        errorHandle = nil
+        outputBuffer.removeAll(keepingCapacity: false)
+        failPending(with: CodexAppServerError.protocolError("Codex sent too much data."))
     }
 
     private func handleLine(_ data: Data) {
@@ -273,6 +397,7 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         process = nil
         outputHandle?.readabilityHandler = nil
         errorHandle?.readabilityHandler = nil
+        queuedOutput.close()
         failPending(with: CodexAppServerError.connectionClosed)
     }
 

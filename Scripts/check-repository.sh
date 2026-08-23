@@ -6,7 +6,7 @@ cd "$project_root"
 
 required=(
   LICENSE NOTICE README.md CHANGELOG.md SECURITY.md CONTRIBUTING.md
-  CODE_OF_CONDUCT.md SUPPORT.md PRIVACY.md RELEASING.md .xcode-version
+  CODE_OF_CONDUCT.md SUPPORT.md PRIVACY.md .xcode-version
   Scripts/release.sh Scripts/check-toolchain.sh
   CodexGauge.xcodeproj/xcshareddata/xcschemes/CodexGauge.xcscheme
 )
@@ -29,6 +29,25 @@ grep -Eq 'public\.app-category\.developer-tools' "$project_file"
 grep -Eq 'Copyright © 2026 North Wolf Labs LLC' "$project_file"
 grep -Eq 'membershipExceptions = \(' "$project_file"
 grep -Eq 'AppIcon\.icon' "$project_file"
+
+grep -Fq '* @gcurtis131' .github/CODEOWNERS
+
+if grep -REn 'pull_request_target|workflow_run|repository_dispatch' .github/workflows; then
+  print -u2 "A privileged or indirect workflow trigger is not allowed."
+  exit 1
+fi
+
+if grep -REn 'uses: [^@[:space:]]+@(main|master|v[0-9]+)([[:space:]]|$)' .github/workflows; then
+  print -u2 "GitHub Actions must be pinned to immutable commit SHAs."
+  exit 1
+fi
+
+checkout_count="$(grep -Rh 'uses: actions/checkout@' .github/workflows | wc -l | tr -d ' ')"
+non_persisting_count="$(grep -Rh 'persist-credentials: false' .github/workflows | wc -l | tr -d ' ')"
+[[ "$checkout_count" == "$non_persisting_count" ]] || {
+  print -u2 "Every checkout must disable credential persistence."
+  exit 1
+}
 
 if grep -REn '(DEVELOPER_ID_P12_BASE64|DEVELOPER_ID_P12_PASSWORD|ASC_API_KEY_P8_BASE64|ASC_API_KEY_ID|ASC_API_ISSUER_ID):[[:space:]]+[^$[:space:]]' .github; then
   print -u2 "A release secret appears to be embedded in source."

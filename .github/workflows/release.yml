@@ -1,9 +1,12 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag already attached to the current main commit
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -13,8 +16,59 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate owner release
+    runs-on: macos-26
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Check out protected main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: main
+      - name: Validate immutable release input
+        id: release
+        shell: zsh {0}
+        env:
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="$RELEASE_TAG_INPUT"
+          [[ "$tag" =~ '^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' ]] || {
+            print -u2 'Release tag must look like v1.2.3 or v1.2.3-rc.1.'
+            exit 1
+          }
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          [[ "$(git cat-file -t "$tag")" == tag ]] || {
+            print -u2 'Release tags must be annotated tags.'
+            exit 1
+          }
+          commit="$(git rev-list -n 1 "$tag")"
+          main_commit="$(git rev-parse HEAD)"
+          [[ "$commit" == "$main_commit" ]] || {
+            print -u2 'The release tag must point to the current protected main commit.'
+            exit 1
+          }
+          version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION = ([^;]+);/\1/p' CodexGauge.xcodeproj/project.pbxproj | sort -u | head -n 1)"
+          [[ "$tag" == "v$version" || "$tag" == "v$version"-rc.<-> ]] || {
+            print -u2 'The release tag does not match MARKETING_VERSION.'
+            exit 1
+          }
+          prerelease=false
+          [[ "$tag" == *-rc.* ]] && prerelease=true
+          {
+            echo "commit=$commit"
+            echo "prerelease=$prerelease"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
   compatibility:
     name: Compatibility · macOS ${{ matrix.macos }}
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -26,8 +80,11 @@ jobs:
             runner: macos-26
     runs-on: ${{ matrix.runner }}
     steps:
-      - name: Check out tagged source
+      - name: Check out validated source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ needs.validate.outputs.commit }}
       - name: Select compatibility Xcode
         shell: zsh {0}
         run: |
@@ -43,7 +100,7 @@ jobs:
             sudo xcode-select --switch "$candidate/Contents/Developer"
             xcodebuild -version
           fi
-      - name: Test tagged source
+      - name: Test validated source
         shell: zsh {0}
         run: |
           set -euo pipefail
@@ -69,7 +126,7 @@ jobs:
             > "$RUNNER_TEMP/release-runtime-${{ matrix.macos }}.log" || true
           if grep -Ei 'Invalid frame dimension|Custom UnitPoint values are not supported|main actor-isolated.*nonisolated|main-thread XCTest|accessibility.*failed|warning:.*(Sendable|actor-isolated|concurr)' \
             "$log_file" "$RUNNER_TEMP/release-runtime-${{ matrix.macos }}.log"; then
-            echo "Release-blocking warning or runtime fault detected." >&2
+            print -u2 'Release-blocking warning or runtime fault detected.'
             exit 1
           fi
       - name: Upload failure diagnostics
@@ -84,46 +141,122 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  release:
-    needs: compatibility
+  build-unsigned:
+    name: Build unsigned artifact
+    needs: [validate, compatibility]
     runs-on: macos-26
-    environment: release
-    permissions:
-      contents: write
     steps:
-      - name: Check out tagged source
+      - name: Check out validated source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ needs.validate.outputs.commit }}
       - name: Select required stable Xcode
         run: |
           candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
           if [[ -n "$candidate" ]]; then sudo xcode-select --switch "$candidate/Contents/Developer"; fi
           ./Scripts/check-toolchain.sh
-      - name: Create ephemeral signing environment
+      - name: Create unsigned release input
         shell: zsh {0}
         env:
-          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
-          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
-          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
           set -euo pipefail
-          [[ -n "$DEVELOPER_ID_P12_BASE64" ]] || { print -u2 'Missing release secret: DEVELOPER_ID_P12_BASE64'; exit 1; }
-          [[ -n "$DEVELOPER_ID_P12_PASSWORD" ]] || { print -u2 'Missing release secret: DEVELOPER_ID_P12_PASSWORD'; exit 1; }
-          [[ -n "$ASC_API_KEY_P8_BASE64" ]] || { print -u2 'Missing release secret: ASC_API_KEY_P8_BASE64'; exit 1; }
-          [[ -n "$ASC_API_KEY_ID" ]] || { print -u2 'Missing release secret: ASC_API_KEY_ID'; exit 1; }
-          [[ -n "$ASC_API_ISSUER_ID" ]] || { print -u2 'Missing release secret: ASC_API_ISSUER_ID'; exit 1; }
-          release_temp="$(mktemp -d "$RUNNER_TEMP/codexgauge-release.XXXXXX")"
-          keychain="$release_temp/release.keychain-db"
+          root="$RUNNER_TEMP/unsigned-release"
+          archive="$root/CodexGauge.xcarchive"
+          mkdir -p "$root/payload"
+          xcodebuild archive \
+            -project CodexGauge.xcodeproj \
+            -scheme CodexGauge \
+            -configuration Release \
+            -destination 'generic/platform=macOS' \
+            -archivePath "$archive" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
+          app="$archive/Products/Applications/CodexGauge.app"
+          binary="$app/Contents/MacOS/CodexGauge"
+          [[ -d "$app" && -f "$binary" ]] || { print -u2 'Unsigned app is missing.'; exit 1; }
+          [[ "$(lipo -archs "$binary")" == arm64 ]] || { print -u2 'Unsigned app is not arm64-only.'; exit 1; }
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.northwolflabs.CodexGauge ]] || exit 1
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
+          [[ "$RELEASE_TAG" == "v$version" || "$RELEASE_TAG" == "v$version"-rc.<-> ]] || exit 1
+          ditto -c -k --keepParent "$app" "$root/payload/CodexGauge-unsigned.zip"
+          ditto -c -k --keepParent "$archive/dSYMs" "$root/payload/CodexGauge-$RELEASE_TAG-dSYMs.zip"
+          xcode_version="$(xcodebuild -version | tr '\n' ';' | sed 's/;$//')"
+          sdk_version="$(xcrun --sdk macosx --show-sdk-version)"
+          build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")"
+          jq -n \
+            --arg product CodexGauge --arg version "$version" --arg tag "$RELEASE_TAG" \
+            --arg build "$build" --arg commit "$RELEASE_COMMIT" --arg xcode "$xcode_version" \
+            --arg sdk "$sdk_version" --arg team ALPX923Y54 \
+            '{product:$product,version:$version,tag:$tag,build:$build,commit:$commit,architecture:"arm64",deploymentTarget:"14.0",xcode:$xcode,sdk:$sdk,team:$team}' \
+            > "$root/payload/build-manifest.json"
+          (cd "$root/payload" && shasum -a 256 CodexGauge-unsigned.zip "CodexGauge-$RELEASE_TAG-dSYMs.zip" build-manifest.json > INPUT-SHA256SUMS)
+      - name: Upload immutable unsigned input
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: unsigned-release-${{ needs.validate.outputs.commit }}
+          path: ${{ runner.temp }}/unsigned-release/payload
+          if-no-files-found: error
+          retention-days: 3
+
+  sign:
+    name: Sign and notarize
+    needs: [validate, build-unsigned]
+    runs-on: macos-26
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - name: Download immutable unsigned input
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: unsigned-release-${{ needs.validate.outputs.commit }}
+          path: ${{ runner.temp }}/unsigned-input
+      - name: Validate, sign, notarize, and package
+        shell: zsh {0}
+        env:
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          input="$RUNNER_TEMP/unsigned-input"
+          output="$RUNNER_TEMP/signed-output"
+          private="$(mktemp -d "$RUNNER_TEMP/codexgauge-private.XXXXXX")"
+          keychain="$private/release.keychain-db"
           keychain_password="$(openssl rand -hex 32)"
-          p12="$release_temp/developer-id.p12"
-          api_key="$release_temp/AuthKey_${ASC_API_KEY_ID}.p8"
-          {
-            echo "RELEASE_TEMP=$release_temp"
-            echo "RELEASE_KEYCHAIN=$keychain"
-          } >> "$GITHUB_ENV"
+          p12="$private/developer-id.p12"
+          api_key="$private/AuthKey_${ASC_API_KEY_ID}.p8"
+          cleanup() {
+            security list-keychains -d user -s login.keychain-db >/dev/null 2>&1 || true
+            security delete-keychain "$keychain" >/dev/null 2>&1 || true
+            if [[ "$private" == "$RUNNER_TEMP"/codexgauge-private.* ]]; then
+              find "$private" -type f -delete 2>/dev/null || true
+              rm -rf "$private"
+            fi
+          }
+          trap cleanup EXIT
+          for value in DEVELOPER_ID_P12_BASE64 DEVELOPER_ID_P12_PASSWORD ASC_API_KEY_P8_BASE64 ASC_API_KEY_ID ASC_API_ISSUER_ID; do
+            [[ -n "${(P)value:-}" ]] || { print -u2 "Required release credential is unavailable: $value"; exit 1; }
+          done
+          (cd "$input" && shasum -a 256 -c INPUT-SHA256SUMS)
+          [[ "$(jq -r .commit "$input/build-manifest.json")" == "$RELEASE_COMMIT" ]] || exit 1
+          [[ "$(jq -r .tag "$input/build-manifest.json")" == "$RELEASE_TAG" ]] || exit 1
+          mkdir -p "$output/app" "$output/dmg-staging"
+          ditto -x -k "$input/CodexGauge-unsigned.zip" "$output/app"
+          app="$output/app/CodexGauge.app"
+          binary="$app/Contents/MacOS/CodexGauge"
+          [[ -d "$app" && -f "$binary" ]] || { print -u2 'Unsigned input has an unexpected layout.'; exit 1; }
+          [[ -z "$(find "$app" -type l -print -quit)" ]] || { print -u2 'Unsigned app contains a symbolic link.'; exit 1; }
+          mach_files=("${(@f)$(find "$app" -type f -print0 | xargs -0 file | awk -F: '/Mach-O/{print $1}')}" )
+          [[ "${#mach_files[@]}" == 1 && "${mach_files[1]}" == "$binary" ]] || { print -u2 'Unsigned app contains unexpected executable code.'; exit 1; }
+          [[ "$(lipo -archs "$binary")" == arm64 ]] || exit 1
+          [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.northwolflabs.CodexGauge ]] || exit 1
           print -rn -- "$DEVELOPER_ID_P12_BASE64" | base64 -D > "$p12"
           print -rn -- "$ASC_API_KEY_P8_BASE64" | base64 -D > "$api_key"
           chmod 600 "$p12" "$api_key"
@@ -133,42 +266,78 @@ jobs:
           security import "$p12" -k "$keychain" -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain"
           security list-keychains -d user -s "$keychain" login.keychain-db
-          {
-            echo "RELEASE_KEYCHAIN_PASSWORD=$keychain_password"
-            echo "ASC_API_KEY_PATH=$api_key"
-          } >> "$GITHUB_ENV"
-      - name: Build, notarize, and verify release
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
-          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
-        run: ./Scripts/release.sh all
+          identity="$(security find-identity -v -p codesigning "$keychain" | sed -nE 's/.*"(Developer ID Application: .* \(ALPX923Y54\))".*/\1/p' | head -n 1)"
+          [[ -n "$identity" ]] || { print -u2 'North Wolf Labs Developer ID identity is unavailable.'; exit 1; }
+          rm -f "$p12"
+          codesign --force --timestamp --options runtime --sign "$identity" "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          details="$(codesign -dvvv "$app" 2>&1)"
+          [[ "$details" == *'TeamIdentifier=ALPX923Y54'* && "$details" == *'Runtime Version'* && "$details" == *'Timestamp='* ]] || exit 1
+          entitlements="$(codesign -d --entitlements :- "$app" 2>/dev/null || true)"
+          [[ "$entitlements" != *'com.apple.security.app-sandbox'* && "$entitlements" != *'com.apple.security.get-task-allow'* ]] || exit 1
+          app_zip="$output/CodexGauge-$RELEASE_TAG.zip"
+          ditto -c -k --keepParent "$app" "$app_zip"
+          xcrun notarytool submit "$app_zip" --key "$api_key" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" --wait --output-format json | tee "$output/app-notarization.json"
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=4 "$app"
+          ditto "$app" "$output/dmg-staging/CodexGauge.app"
+          ln -s /Applications "$output/dmg-staging/Applications"
+          dmg="$output/CodexGauge-$RELEASE_TAG.dmg"
+          hdiutil create -volname CodexGauge -srcfolder "$output/dmg-staging" -ov -format UDZO "$dmg"
+          codesign --force --timestamp --sign "$identity" "$dmg"
+          xcrun notarytool submit "$dmg" --key "$api_key" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" --wait --output-format json | tee "$output/dmg-notarization.json"
+          rm -f "$api_key"
+          xcrun stapler staple "$dmg"
+          xcrun stapler validate "$dmg"
+          codesign --verify --verbose=2 "$dmg"
+          spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
+          cp "$input/CodexGauge-$RELEASE_TAG-dSYMs.zip" "$input/build-manifest.json" "$output/"
+          rm -rf "$output/app" "$output/dmg-staging" "$app_zip"
+          (cd "$output" && shasum -a 256 "CodexGauge-$RELEASE_TAG.dmg" "CodexGauge-$RELEASE_TAG-dSYMs.zip" app-notarization.json dmg-notarization.json build-manifest.json > SHA256SUMS)
+          (cd "$output" && shasum -a 256 -c SHA256SUMS)
+      - name: Upload signed release assets
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: signed-release-${{ needs.validate.outputs.commit }}
+          path: ${{ runner.temp }}/signed-output
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-draft:
+    name: Create owner-reviewed draft
+    needs: [validate, sign]
+    runs-on: macos-26
+    environment: release-publish
+    permissions:
+      contents: write
+    steps:
+      - name: Download signed release assets
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: signed-release-${{ needs.validate.outputs.commit }}
+          path: ${{ runner.temp }}/signed-release
       - name: Create draft GitHub release
+        shell: zsh {0}
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: zsh {0}
+          RELEASE_PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
         run: |
           set -euo pipefail
-          release_root=".build/release/${GITHUB_REF_NAME}"
+          root="$RUNNER_TEMP/signed-release"
+          (cd "$root" && shasum -a 256 -c SHA256SUMS)
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            print -u2 'A GitHub Release already exists for this tag.'
+            exit 1
+          fi
           prerelease=()
-          [[ "$GITHUB_REF_NAME" == *-rc.* ]] && prerelease=(--prerelease)
-          gh release create "$GITHUB_REF_NAME" \
-            "$release_root/CodexGauge-$GITHUB_REF_NAME.dmg" \
-            "$release_root/SHA256SUMS" \
-            "$release_root/build-manifest.json" \
-            "$release_root/CodexGauge-$GITHUB_REF_NAME-dSYMs.zip" \
-            "$release_root/app-notarization.json" \
-            "$release_root/dmg-notarization.json" \
+          [[ "$RELEASE_PRERELEASE" == true ]] && prerelease=(--prerelease)
+          gh release create "$RELEASE_TAG" \
+            "$root/CodexGauge-$RELEASE_TAG.dmg" \
+            "$root/SHA256SUMS" \
+            "$root/build-manifest.json" \
+            "$root/CodexGauge-$RELEASE_TAG-dSYMs.zip" \
+            "$root/app-notarization.json" \
+            "$root/dmg-notarization.json" \
             --draft --generate-notes --verify-tag "${prerelease[@]}"
-      - name: Destroy release credentials
-        if: always()
-        shell: zsh {0}
-        run: |
-          if [[ -n "${RELEASE_KEYCHAIN:-}" ]]; then
-            security list-keychains -d user -s login.keychain-db || true
-            security delete-keychain "$RELEASE_KEYCHAIN" || true
-          fi
-          if [[ -n "${RELEASE_TEMP:-}" && "$RELEASE_TEMP" == "$RUNNER_TEMP"/codexgauge-release.* ]]; then
-            find "$RELEASE_TEMP" -type f -exec sh -c 'for file do size=$(stat -f %z "$file" 2>/dev/null || echo 0); if [ "$size" -gt 0 ]; then dd if=/dev/zero of="$file" bs=4096 count=$(((size + 4095) / 4096)) conv=notrunc 2>/dev/null || true; fi; done' sh {} +
-            rm -rf "$RELEASE_TEMP"
-          fi

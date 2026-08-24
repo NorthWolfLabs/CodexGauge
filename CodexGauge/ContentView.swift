@@ -367,7 +367,11 @@ private struct QuotaBucketView: View {
     let onExpansionChanged: (Bool) -> Void
 
     var body: some View {
-        FullWidthDisclosure(indicatorTrailing: true, onExpansionChanged: onExpansionChanged) {
+        FullWidthDisclosure(
+            indicatorTrailing: true,
+            identifier: "allowance-\(bucket.id)-disclosure",
+            onExpansionChanged: onExpansionChanged
+        ) {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(bucket.windows) { window in
                     QuotaWindowView(window: window, isFresh: isFresh, now: now, clock: clock)
@@ -738,7 +742,6 @@ private struct FullWidthDisclosure<Label: View, Content: View>: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .focusable()
             .accessibilityIdentifier(identifier)
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint(isExpanded ? "Collapse details" : "Expand details")

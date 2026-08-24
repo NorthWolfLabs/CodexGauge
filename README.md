@@ -89,7 +89,7 @@ Every local release also runs a deterministic 25-minute Release-mode resource ga
 
 The committed budgets require a closed app to average under 1% CPU and remain below 100 MB physical footprint, with separate limits for visible and expanded surfaces. See [Performance/README.md](Performance/README.md) for scenarios, measurements, and diagnostic artifacts.
 
-The application target uses macOS 14, hardened runtime, no App Sandbox, `LSUIElement`, and an arm64-only Release architecture. The asset catalog is the single compiled icon source; macOS applies its supported current appearance on newer releases.
+The application target uses macOS 14, hardened runtime, no App Sandbox, `LSUIElement`, and an arm64-only Release architecture. The checked-in Icon Composer source is compiled with the asset catalog so current macOS releases use the native layered icon and older supported releases receive Xcode's compatibility representation.
 
 ## Troubleshooting
 

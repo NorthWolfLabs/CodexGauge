@@ -6,7 +6,11 @@ import ServiceManagement
 @Observable
 final class SettingsStore {
     static let supportedRefreshIntervals: [TimeInterval] = [1, 5, 15, 30, 60, 120]
+    static let defaultNotificationThresholds = [20, 10, 5]
+    private static let preferencesSchemaVersion = 1
+
     private enum Key {
+        static let preferencesSchemaVersion = "preferencesSchemaVersion"
         static let refreshInterval = "refreshInterval"
         static let executableOverride = "executableOverride"
         static let codexHomeOverride = "codexHomeOverride"
@@ -58,12 +62,28 @@ final class SettingsStore {
         refreshInterval = Self.supportedRefreshIntervals.contains(interval) ? interval : 60
         executableOverride = defaults.string(forKey: Key.executableOverride) ?? ""
         codexHomeOverride = defaults.string(forKey: Key.codexHomeOverride) ?? ""
-        quotaNotificationsEnabled = defaults.bool(forKey: Key.quotaNotifications)
+        let storedThresholds = defaults.array(forKey: Key.notificationThresholds) as? [Int]
+        let configuredThresholds = storedThresholds.flatMap { $0.isEmpty ? nil : $0 }
+            ?? Self.defaultNotificationThresholds
+        let normalizedThresholds = Array(Set(
+            configuredThresholds.map { max(1, min(99, $0)) }
+        )).sorted(by: >)
+        // Early prerelease UI fixtures could leave the sentinel [99, 1] pair in
+        // the production preference domain. Repair only that known state; keep
+        // every genuine user configuration unchanged.
+        let repairsPrereleaseFixture = defaults.integer(forKey: Key.preferencesSchemaVersion) < Self.preferencesSchemaVersion
+            && normalizedThresholds == [99, 1]
+
+        quotaNotificationsEnabled = repairsPrereleaseFixture ? false : defaults.bool(forKey: Key.quotaNotifications)
         attentionNotificationsEnabled = defaults.bool(forKey: Key.attentionNotifications)
-        let thresholds = defaults.array(forKey: Key.notificationThresholds) as? [Int]
-        let configuredThresholds = thresholds?.isEmpty == false ? thresholds! : [20, 10, 5]
-        notificationThresholds = Array(Set(configuredThresholds.map { max(1, min(99, $0)) })).sorted(by: >)
+        notificationThresholds = repairsPrereleaseFixture ? Self.defaultNotificationThresholds : normalizedThresholds
         launchAtLogin = SMAppService.mainApp.status == .enabled
+
+        if repairsPrereleaseFixture {
+            defaults.set(false, forKey: Key.quotaNotifications)
+            defaults.set(Self.defaultNotificationThresholds, forKey: Key.notificationThresholds)
+        }
+        defaults.set(Self.preferencesSchemaVersion, forKey: Key.preferencesSchemaVersion)
     }
 
     func updateLaunchAtLogin(_ enabled: Bool) {

@@ -176,6 +176,32 @@ final class CodexGaugeUITests: XCTestCase {
     }
 
     @MainActor
+    func testAllowanceAlertsAreOffByDefaultWithPracticalPresets() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestDemo"]
+        app.launch()
+        let statusItem = app.statusItems["codexgauge.statusItem"]
+        XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+        statusItem.rightClick()
+        statusItem.menuItems["Settings…"].click()
+        let settingsWindow = app.windows["General"]
+        XCTAssertTrue(settingsWindow.waitForExistence(timeout: 3))
+        settingsWindow.buttons["Notifications"].click()
+        let notificationsWindow = app.windows["Notifications"]
+        XCTAssertTrue(notificationsWindow.waitForExistence(timeout: 3))
+
+        let toggle = notificationsWindow.descendants(matching: .any)["allowance-alerts-toggle"].firstMatch
+        XCTAssertTrue(toggle.waitForExistence(timeout: 2))
+        XCTAssertFalse(notificationsWindow.textFields["allowance-threshold-field"].firstMatch.exists)
+
+        toggle.click()
+        let fields = notificationsWindow.textFields
+            .matching(identifier: "allowance-threshold-field")
+            .allElementsBoundByIndex
+        XCTAssertEqual(fields.compactMap { $0.value as? String }, ["20", "10", "5"])
+    }
+
+    @MainActor
     func testAllowanceThresholdValidation() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-uiTestDemo", "-uiTestInvalidThresholds"]

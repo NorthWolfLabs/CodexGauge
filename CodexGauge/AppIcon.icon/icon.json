@@ -1,0 +1,60 @@
+{
+  "fill" : {
+    "automatic-gradient" : "extended-srgb:0.00000,0.40784,0.80000,1.00000"
+  },
+  "groups" : [
+    {
+      "layers" : [
+        {
+          "image-name" : "01-dial.svg",
+          "name" : "Dial"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.22
+      },
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.18
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "02-track.svg",
+          "name" : "Track and markers"
+        }
+      ],
+      "translucency" : {
+        "enabled" : true,
+        "value" : 0.08
+      }
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "03-progress.svg",
+          "name" : "Usage arc"
+        }
+      ]
+    },
+    {
+      "layers" : [
+        {
+          "image-name" : "04-needle.svg",
+          "name" : "Needle"
+        }
+      ],
+      "shadow" : {
+        "kind" : "neutral",
+        "opacity" : 0.2
+      }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : [
+      "macOS"
+    ]
+  }
+}

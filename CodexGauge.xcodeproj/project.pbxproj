@@ -29,22 +29,9 @@
 		5EECA0D53038E6010058574B /* CodexGaugeUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CodexGaugeUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		5EECA0EA3038E6010058574B /* Exceptions for "CodexGauge" folder in "CodexGauge" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				AppIcon.icon,
-			);
-			target = 5EECA0BD3038E6000058574B /* CodexGauge */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5EECA0C03038E6000058574B /* CodexGauge */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				5EECA0EA3038E6010058574B /* Exceptions for "CodexGauge" folder in "CodexGauge" target */,
-			);
 			path = CodexGauge;
 			sourceTree = "<group>";
 		};
@@ -390,7 +377,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = ALPX923Y54;
 				ENABLE_APP_SANDBOX = NO;
@@ -427,7 +414,7 @@
 				CLANG_ENABLE_CODE_COVERAGE = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = ALPX923Y54;
 				ENABLE_APP_SANDBOX = NO;
@@ -460,7 +447,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = ALPX923Y54;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -482,7 +469,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = ALPX923Y54;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -503,7 +490,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = ALPX923Y54;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -524,7 +511,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = ALPX923Y54;
 				GENERATE_INFOPLIST_FILE = YES;

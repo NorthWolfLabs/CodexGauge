@@ -10,6 +10,11 @@ required=(
   Performance/Budgets.json Performance/README.md
   Scripts/release.sh Scripts/check-toolchain.sh Scripts/performance-check.sh
   Scripts/performance-probe.swift
+  CodexGauge/AppIcon.icon/icon.json
+  CodexGauge/AppIcon.icon/Assets/01-dial.svg
+  CodexGauge/AppIcon.icon/Assets/02-track.svg
+  CodexGauge/AppIcon.icon/Assets/03-progress.svg
+  CodexGauge/AppIcon.icon/Assets/04-needle.svg
   CodexGauge.xcodeproj/xcshareddata/xcschemes/CodexGauge.xcscheme
 )
 for required_file in "${required[@]}"; do
@@ -29,8 +34,10 @@ grep -Eq 'INFOPLIST_KEY_LSUIElement = YES;' "$project_file"
 grep -Eq 'MARKETING_VERSION = 1\.0\.0;' "$project_file"
 grep -Eq 'public\.app-category\.developer-tools' "$project_file"
 grep -Eq 'Copyright © 2026 North Wolf Labs LLC' "$project_file"
-grep -Eq 'membershipExceptions = \(' "$project_file"
-grep -Eq 'AppIcon\.icon' "$project_file"
+if grep -A4 'membershipExceptions = (' "$project_file" | grep -Fq 'AppIcon.icon'; then
+  print -u2 "The Icon Composer source must be included in the application target."
+  exit 1
+fi
 
 grep -Fq '* @gcurtis131' .github/CODEOWNERS
 

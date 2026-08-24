@@ -18,7 +18,6 @@ TestArtifacts/
 *.profraw
 *.profdata
 xcuserdata/
-CodexGauge/AppIcon.icon/
 .DS_Store
 .env
 .env.*

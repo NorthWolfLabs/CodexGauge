@@ -132,6 +132,7 @@ struct SettingsView: View {
 
             Section {
                 Toggle("Notify me when an allowance runs low", isOn: $settings.quotaNotificationsEnabled)
+                    .accessibilityIdentifier("allowance-alerts-toggle")
                     .onChange(of: settings.quotaNotificationsEnabled) { _, enabled in
                         if enabled { Task { _ = await state.requestNotificationPermission() } }
                     }

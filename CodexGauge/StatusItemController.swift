@@ -73,7 +73,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             popoverClock?.start()
             updatePopoverSize()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            if let window = popover.contentViewController?.view.window {
+                window.makeKey()
+                // A mouse-opened popover should not look as though its first row
+                // is permanently selected. Clearing the initial responder keeps
+                // the surface neutral while Tab still enters the normal button
+                // focus chain for keyboard navigation.
+                window.makeFirstResponder(nil)
+            }
             PerformanceSignposts.recordPresentation("popover", startedAt: presentationStartedAt)
         }
     }

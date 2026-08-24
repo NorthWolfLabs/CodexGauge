@@ -5,6 +5,38 @@ import Testing
 
 struct CodexGaugeTests {
     @MainActor
+    @Test func allowanceAlertsStartOffWithPracticalPresets() {
+        let suite = "CodexGaugeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(!settings.quotaNotificationsEnabled)
+        #expect(settings.notificationThresholds == [20, 10, 5])
+    }
+
+    @MainActor
+    @Test func prereleaseFixturePreferencesAreRepairedOnce() {
+        let suite = "CodexGaugeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "quotaNotifications")
+        defaults.set([99, 1], forKey: "notificationThresholds")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(!settings.quotaNotificationsEnabled)
+        #expect(settings.notificationThresholds == [20, 10, 5])
+
+        settings.quotaNotificationsEnabled = true
+        settings.notificationThresholds = [30, 12]
+        let reloaded = SettingsStore(defaults: defaults)
+        #expect(reloaded.quotaNotificationsEnabled)
+        #expect(reloaded.notificationThresholds == [30, 12])
+    }
+
+    @MainActor
     @Test func notificationThresholdCountIsUserConfigurable() {
         let suite = "CodexGaugeTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!

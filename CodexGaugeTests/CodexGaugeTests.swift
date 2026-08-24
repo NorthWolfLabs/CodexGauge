@@ -374,7 +374,24 @@ struct CodexGaugeTests {
         #expect(activity.lifetimeTokens == 1_234)
     }
 
-    @Test func helperLaunchRequirementRejectsAProcessFromAnotherSigner() throws {
+    @Test func helperStaticTrustRejectsAProcessFromAnotherSigner() throws {
+        var rejected = false
+        do {
+            _ = try CodexExecutableTrust.validate(URL(fileURLWithPath: "/bin/echo"))
+        } catch {
+            rejected = true
+        }
+
+        #expect(rejected)
+    }
+
+    @Test(
+        .disabled(
+            if: ProcessInfo.processInfo.environment["CI"] == "true",
+            "GitHub Actions ad-hoc signs XCTest hosts, so macOS does not enforce parent launch constraints there."
+        )
+    )
+    func helperLaunchRequirementRejectsAProcessFromAnotherSigner() throws {
         let child = Process()
         child.executableURL = URL(fileURLWithPath: "/bin/echo")
         child.arguments = ["must-not-run"]

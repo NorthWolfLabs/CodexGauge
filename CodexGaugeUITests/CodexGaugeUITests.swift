@@ -182,8 +182,7 @@ final class CodexGaugeUITests: XCTestCase {
         app.launch()
         let statusItem = app.statusItems["codexgauge.statusItem"]
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
-        statusItem.rightClick()
-        statusItem.menuItems["Settings…"].click()
+        app.typeKey(",", modifierFlags: .command)
         let settingsWindow = app.windows["General"]
         XCTAssertTrue(settingsWindow.waitForExistence(timeout: 3))
         settingsWindow.buttons["Notifications"].click()
@@ -194,7 +193,14 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 2))
         XCTAssertFalse(notificationsWindow.textFields["allowance-threshold-field"].firstMatch.exists)
 
-        toggle.click()
+        if toggle.isHittable {
+            toggle.click()
+        } else {
+            // XCUITest can report an otherwise visible native switch as non-hittable on
+            // headless macOS runners. Clicking its resolved center still exercises the
+            // same control and avoids coupling this test to the runner's window focus.
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+        }
         let fields = notificationsWindow.textFields
             .matching(identifier: "allowance-threshold-field")
             .allElementsBoundByIndex

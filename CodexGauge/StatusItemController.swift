@@ -348,6 +348,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
                     }
                 }
             )
+            .codexGaugeWritingToolsDisabled()
         )
     }
 }

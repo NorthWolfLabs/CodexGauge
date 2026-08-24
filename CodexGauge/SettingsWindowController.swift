@@ -44,7 +44,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
     init(state: AppState, onShowHelp: @escaping () -> Void) {
         self.state = state
         helpShortcut = HelpShortcutMonitor(onShowHelp: onShowHelp)
-        let hostingController = NSHostingController(rootView: SettingsView(state: state, navigation: navigation))
+        let hostingController = NSHostingController(
+            rootView: SettingsView(state: state, navigation: navigation)
+                .codexGaugeWritingToolsDisabled()
+        )
         let window = CodexGaugeWindow(
             contentRect: NSRect(x: 0, y: 0, width: 600, height: 380),
             styleMask: [.titled, .closable],

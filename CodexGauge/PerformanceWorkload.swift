@@ -20,22 +20,24 @@ final class PerformanceWorkloadController {
         do {
             try fileManager.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
             try fileManager.createDirectory(at: lockDirectory, withIntermediateDirectories: true)
-            let timestamp = ISO8601DateFormatter().string(from: .now)
+            let timestamp = Date.now.timeIntervalSince1970
             var files: [URL] = []
             for index in 0..<200 {
                 let id = String(format: "10000000-0000-0000-0000-%012d", index)
                 let file = sessionDirectory.appending(path: "rollout-2026-08-24T00-00-00-\(id).jsonl")
-                let metadata = #"{"timestamp":"\#(timestamp)","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Performance-\#(index)","model":"gpt-performance"}}"#
+                let metadata = #"{"timestamp":\#(timestamp),"type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Performance-\#(index)","model":"gpt-performance"}}"#
                 try Data((metadata + "\n").utf8).write(to: file, options: .atomic)
                 files.append(file)
             }
 
-            let oversized = #"{"timestamp":"\#(timestamp)","type":"response_item","payload":{"type":"message","content":"\#(String(repeating: "x", count: 2_100_000))"}}"#
             if let file = files.first {
-                let handle = try FileHandle(forWritingTo: file)
-                try handle.seekToEnd()
-                try handle.write(contentsOf: Data((oversized + "\n").utf8))
-                try handle.close()
+                try autoreleasepool {
+                    let oversized = #"{"timestamp":\#(timestamp),"type":"response_item","payload":{"type":"message","content":"\#(String(repeating: "x", count: 2_100_000))"}}"#
+                    let handle = try FileHandle(forWritingTo: file)
+                    try handle.seekToEnd()
+                    try handle.write(contentsOf: Data((oversized + "\n").utf8))
+                    try handle.close()
+                }
             }
 
             let monitor = LocalSessionMonitor(codexHomeURL: root)
@@ -44,16 +46,26 @@ final class PerformanceWorkloadController {
                 for await _ in stream where !Task.isCancelled {}
             }
 
-            for sequence in 1...1_800 where !Task.isCancelled {
-                let file = files[sequence % 25]
-                let total = sequence * 1_000
-                let record = #"{"timestamp":"\#(ISO8601DateFormatter().string(from: .now))","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":\#(total - 100),"cached_input_tokens":\#(total / 2),"output_tokens":100,"reasoning_output_tokens":10,"total_tokens":\#(total)},"last_token_usage":{"input_tokens":900,"cached_input_tokens":500,"output_tokens":100,"reasoning_output_tokens":10,"total_tokens":1000},"model_context_window":200000}}}"#
+            // The writer is part of the deterministic fixture, not the product work
+            // being measured. Reusing append handles and draining each iteration's
+            // temporary Foundation objects prevents the fixture itself from creating
+            // short-lived memory spikes in CodexGauge's process footprint.
+            let appendHandles = try files.prefix(25).map { file -> FileHandle in
                 let handle = try FileHandle(forWritingTo: file)
                 try handle.seekToEnd()
-                try handle.write(contentsOf: Data((record + "\n").utf8))
-                try handle.close()
+                return handle
+            }
+            for sequence in 1...1_800 where !Task.isCancelled {
+                try autoreleasepool {
+                    let total = sequence * 1_000
+                    let eventTimestamp = Date.now.timeIntervalSince1970
+                    let record = #"{"timestamp":\#(eventTimestamp),"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":\#(total - 100),"cached_input_tokens":\#(total / 2),"output_tokens":100,"reasoning_output_tokens":10,"total_tokens":\#(total)},"last_token_usage":{"input_tokens":900,"cached_input_tokens":500,"output_tokens":100,"reasoning_output_tokens":10,"total_tokens":1000},"model_context_window":200000}}}"#
+                    try appendHandles[sequence % appendHandles.count]
+                        .write(contentsOf: Data((record + "\n").utf8))
+                }
                 try? await Task.sleep(for: .milliseconds(100))
             }
+            for handle in appendHandles { try? handle.close() }
 
             // Leave a quiet interval so the performance gate can verify that queued
             // FSEvents drain and the bounded monitor returns to its maintenance cadence.

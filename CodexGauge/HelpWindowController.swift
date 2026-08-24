@@ -4,7 +4,11 @@ import SwiftUI
 @MainActor
 final class HelpWindowController: NSWindowController, NSWindowDelegate {
     init() {
-        let window = NSWindow(contentViewController: NSHostingController(rootView: HelpView()))
+        let window = NSWindow(
+            contentViewController: NSHostingController(
+                rootView: HelpView().codexGaugeWritingToolsDisabled()
+            )
+        )
         window.title = "CodexGauge Help"
         window.identifier = NSUserInterfaceItemIdentifier("codexgauge.helpWindow")
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]

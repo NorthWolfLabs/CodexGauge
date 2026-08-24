@@ -5,6 +5,9 @@ struct ResourceSample: Codable {
     let elapsedSeconds: Int
     let cpuPercent: Double
     let footprintMB: Double
+    let residentMB: Double
+    let lifetimeMaximumFootprintMB: Double
+    let intervalMaximumFootprintMB: Double
 }
 
 struct Result: Codable {
@@ -88,7 +91,10 @@ for second in 1...duration {
         samples.append(ResourceSample(
             elapsedSeconds: second,
             cpuPercent: cpuPercent,
-            footprintMB: footprintMB
+            footprintMB: footprintMB,
+            residentMB: Double(currentUsage.ri_resident_size) / 1_048_576,
+            lifetimeMaximumFootprintMB: Double(currentUsage.ri_lifetime_max_phys_footprint) / 1_048_576,
+            intervalMaximumFootprintMB: Double(currentUsage.ri_interval_max_phys_footprint) / 1_048_576
         ))
     }
     previousUsage = currentUsage

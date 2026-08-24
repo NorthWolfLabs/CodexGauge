@@ -53,7 +53,10 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
         let signpost = PerformanceSignposts.begin("Dashboard construction")
         defer { PerformanceSignposts.end("Dashboard construction", signpost) }
         let clock = VisibleSurfaceClock()
-        let controller = NSHostingController(rootView: DashboardView(state: state, clock: clock))
+        let controller = NSHostingController(
+            rootView: DashboardView(state: state, clock: clock)
+                .codexGaugeWritingToolsDisabled()
+        )
         let window = CodexGaugeWindow(contentViewController: controller)
         window.showHelp = onShowHelp
         window.title = "CodexGauge"

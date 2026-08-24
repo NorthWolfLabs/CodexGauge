@@ -79,7 +79,7 @@ run_tests() {
     -resultBundlePath "$release_root/Tests.xcresult" \
     ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= 2>&1 | tee "$test_log"
-  log show --start "$started" --style compact \
+  /usr/bin/log show --start "$started" --style compact \
     --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
     > "$runtime_log" || true
   reject_release_diagnostics "$test_log"

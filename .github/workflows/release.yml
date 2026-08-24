@@ -189,7 +189,7 @@ jobs:
             --arg product CodexGauge --arg version "$version" --arg tag "$RELEASE_TAG" \
             --arg build "$build" --arg commit "$RELEASE_COMMIT" --arg xcode "$xcode_version" \
             --arg sdk "$sdk_version" --arg team ALPX923Y54 \
-            '{product:$product,version:$version,tag:$tag,build:$build,commit:$commit,architecture:"arm64",deploymentTarget:"14.0",xcode:$xcode,sdk:$sdk,team:$team}' \
+            '{product:$product,version:$version,tag:$tag,build:$build,commit:$commit,architecture:"arm64",deploymentTarget:"14.4",xcode:$xcode,sdk:$sdk,team:$team}' \
             > "$root/payload/build-manifest.json"
           (cd "$root/payload" && shasum -a 256 CodexGauge-unsigned.zip "CodexGauge-$RELEASE_TAG-dSYMs.zip" build-manifest.json > INPUT-SHA256SUMS)
       - name: Upload immutable unsigned input

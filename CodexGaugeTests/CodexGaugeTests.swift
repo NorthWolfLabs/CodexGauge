@@ -1,5 +1,6 @@
 import Foundation
 import CoreServices
+import LightweightCodeRequirements
 import Testing
 @testable import CodexGauge
 
@@ -371,6 +372,91 @@ struct CodexGaugeTests {
         #expect(identity.plan == "pro")
         #expect(limits.buckets.first?.windows.first?.remainingPercent == 58)
         #expect(activity.lifetimeTokens == 1_234)
+    }
+
+    @Test func helperLaunchRequirementRejectsAProcessFromAnotherSigner() throws {
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/echo")
+        child.arguments = ["must-not-run"]
+        child.launchRequirement = try CodexExecutableTrust.launchRequirement()
+
+        var rejected = false
+        do {
+            try child.run()
+            child.waitUntilExit()
+            rejected = child.terminationReason == .uncaughtSignal || child.terminationStatus != 0
+        } catch {
+            rejected = true
+        }
+
+        #expect(rejected)
+    }
+
+    @Test func boundedFileReaderRejectsSymlinksAndOversizedFiles() throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let regular = temporary.appending(path: "regular.json")
+        let link = temporary.appending(path: "link.json")
+        try Data("12345".utf8).write(to: regular)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: regular)
+
+        #expect(BoundedFileReader.read(regular, maximumBytes: 5) == Data("12345".utf8))
+        #expect(BoundedFileReader.read(regular, maximumBytes: 4) == nil)
+        #expect(BoundedFileReader.read(link, maximumBytes: 5) == nil)
+    }
+
+    @Test func anchoredFileAccessRejectsAnIntermediateDirectorySymlinkSwap() throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let root = temporary.appending(path: "sessions", directoryHint: .isDirectory)
+        let original = root.appending(path: "2026", directoryHint: .isDirectory)
+        let displaced = root.appending(path: "2026-original", directoryHint: .isDirectory)
+        let outside = temporary.appending(path: "outside", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: original, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        try Data("inside".utf8).write(to: original.appending(path: "rollout.jsonl"))
+        try Data("outside".utf8).write(to: outside.appending(path: "rollout.jsonl"))
+
+        let directory = try #require(AnchoredFileAccess.openDirectory(root))
+        defer { close(directory.descriptor) }
+        let originalDescriptor = try #require(AnchoredFileAccess.openRegularFile(
+            relativePath: "2026/rollout.jsonl",
+            directoryDescriptor: directory.descriptor
+        ))
+        close(originalDescriptor)
+
+        try FileManager.default.moveItem(at: original, to: displaced)
+        try FileManager.default.createSymbolicLink(at: original, withDestinationURL: outside)
+
+        #expect(AnchoredFileAccess.openRegularFile(
+            relativePath: "2026/rollout.jsonl",
+            directoryDescriptor: directory.descriptor
+        ) == nil)
+    }
+
+    @Test func directoryEntryEnumerationIsBoundedBeforeLockProbing() throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        for index in 0..<600 {
+            _ = FileManager.default.createFile(
+                atPath: temporary.appending(path: "\(index).lock").path,
+                contents: Data()
+            )
+        }
+
+        let directory = try #require(AnchoredFileAccess.openDirectory(temporary))
+        defer { close(directory.descriptor) }
+        let stream = try #require(AnchoredFileAccess.DirectoryStream(directoryDescriptor: directory.descriptor))
+        let first = stream.nextBatch(maximumEntries: 512)
+        let second = stream.nextBatch(maximumEntries: 512)
+
+        #expect(first.names.count == 512)
+        #expect(!first.reachedEnd)
+        #expect(second.names.count == 88)
+        #expect(second.reachedEnd)
     }
 
     @Test func localSessionMonitorDecodesMetadataWithoutMessageContent() async throws {

@@ -7,9 +7,9 @@ CodexGauge is an independent North Wolf Labs project and is not affiliated with 
 ## Compatibility
 
 - Apple Silicon only (`arm64`)
-- macOS 14 or later
+- macOS 14.4 or later
 - An installed and signed-in ChatGPT or Codex app, or a compatible Codex executable
-- Public releases are validated on macOS 14 and the current macOS 26 release line
+- Public releases are validated on macOS 14.4 and the current macOS 26 release line
 
 Intel Macs are not supported.
 
@@ -89,7 +89,7 @@ Every local release also runs a deterministic 25-minute Release-mode resource ga
 
 The committed budgets require a closed app to average under 1% CPU and remain below 100 MB physical footprint, with separate limits for visible and expanded surfaces. See [Performance/README.md](Performance/README.md) for scenarios, measurements, and diagnostic artifacts.
 
-The application target uses macOS 14, hardened runtime, no App Sandbox, `LSUIElement`, and an arm64-only Release architecture. The checked-in Icon Composer source is compiled with the asset catalog so current macOS releases use the native layered icon and older supported releases receive Xcode's compatibility representation.
+The application target uses macOS 14.4, hardened runtime, no App Sandbox, `LSUIElement`, and an arm64-only Release architecture. The checked-in Icon Composer source is compiled with the asset catalog so current macOS releases use the native layered icon and older supported releases receive Xcode's compatibility representation.
 
 ## Troubleshooting
 

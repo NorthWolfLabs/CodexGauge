@@ -1,4 +1,5 @@
 import Foundation
+import LightweightCodeRequirements
 import Security
 
 enum CodexExecutableTrustError: LocalizedError {
@@ -45,6 +46,15 @@ enum CodexExecutableTrust {
             throw CodexExecutableTrustError.untrusted
         }
         return resolved
+    }
+
+    @available(macOS 14.4, *)
+    static func launchRequirement() throws -> LaunchCodeRequirement {
+        try LaunchCodeRequirement.allOf {
+            SigningIdentifier("codex")
+            TeamIdentifier(openAITeamID)
+            ValidationCategory(.developerID)
+        }
     }
 }
 

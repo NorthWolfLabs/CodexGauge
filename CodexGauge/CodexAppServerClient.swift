@@ -1,4 +1,5 @@
 import Foundation
+import LightweightCodeRequirements
 
 private final class BoundedPipeBuffer: @unchecked Sendable {
     enum AppendResult {
@@ -173,9 +174,7 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         inputHandle?.closeFile()
         outputHandle?.closeFile()
         errorHandle?.closeFile()
-        if let process, process.isRunning {
-            process.terminate()
-        }
+        if let process { Self.terminate(process) }
         process = nil
         inputHandle = nil
         outputHandle = nil
@@ -224,6 +223,9 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         child.standardInput = inputPipe
         child.standardOutput = outputPipe
         child.standardError = errorPipe
+        if !skipTrustValidation {
+            child.launchRequirement = try CodexExecutableTrust.launchRequirement()
+        }
 
         let inherited = ProcessInfo.processInfo.environment
         var environment: [String: String] = [:]
@@ -354,7 +356,7 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         inputHandle?.closeFile()
         outputHandle?.closeFile()
         errorHandle?.closeFile()
-        if let process, process.isRunning { process.terminate() }
+        if let process { Self.terminate(process) }
         process = nil
         inputHandle = nil
         outputHandle = nil
@@ -424,6 +426,16 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         for request in requests.values {
             request.timeoutTask.cancel()
             request.continuation.resume(throwing: error)
+        }
+    }
+
+    private nonisolated static func terminate(_ child: Process) {
+        guard child.isRunning else { return }
+        child.terminate()
+        Task.detached(priority: .utility) {
+            try? await Task.sleep(for: .seconds(2))
+            guard child.isRunning else { return }
+            kill(child.processIdentifier, SIGKILL)
         }
     }
 

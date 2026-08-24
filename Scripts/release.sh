@@ -185,7 +185,7 @@ write_artifacts() {
   "build": "$build_number",
   "commit": "$commit",
   "architecture": "arm64",
-  "deploymentTarget": "14.0",
+  "deploymentTarget": "14.4",
   "xcode": "$xcode_version",
   "sdk": "$sdk_version",
   "team": "$team_id"

@@ -55,11 +55,22 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     private var snapshotPolicy = SemanticSnapshotPolicy<[ConversationTelemetry]>()
     private var requiresRescan = false
     private var started = false
+    private var sessionsRootDescriptor: Int32 = -1
+    private var sessionsRootPath: String?
+    private var lockDirectoryStream: AnchoredFileAccess.DirectoryStream?
+    private var lockCycleActiveIDs = Set<String>()
+    private var lockDirectoryRestartPending = false
 
     private static let maximumTrackedSessions = 200
     private static let maximumFilesPerPass = 200
     private static let maximumBytesPerPass = 16 * 1_024 * 1_024
     private static let maximumBytesPerFile = 4 * 1_024 * 1_024
+    private static let maximumDiscoveryEntries = 5_000
+    private static let maximumDiscoveryDepth = 6
+    private static let maximumRecordsPerParse = 10_000
+    private static let maximumTitleRecords = 20_000
+    private static let maximumLockEntriesPerPass = 200
+    private static let maximumLockProbesPerPass = 200
 
     init(codexHomeURL: URL, clock: any ClockProviding = SystemClock()) {
         self.codexHomeURL = codexHomeURL
@@ -86,6 +97,14 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         pendingFilesystemPaths.removeAll()
         watcher?.stop()
         watcher = nil
+        if sessionsRootDescriptor >= 0 {
+            close(sessionsRootDescriptor)
+            sessionsRootDescriptor = -1
+        }
+        sessionsRootPath = nil
+        lockDirectoryStream = nil
+        lockCycleActiveIDs.removeAll()
+        lockDirectoryRestartPending = false
         continuation?.finish()
         continuation = nil
         sessions.removeAll()
@@ -101,8 +120,10 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         loadTitles()
         probeLocks()
         let discoverySignpost = PerformanceSignposts.begin("Session discovery")
-        discoverRecentSessions()
-        processTrackedSessions()
+        if prepareSessionsRoot() {
+            discoverRecentSessions()
+            processTrackedSessions()
+        }
         PerformanceSignposts.end("Session discovery", discoverySignpost)
         emitSnapshot()
 
@@ -124,6 +145,10 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         maintenanceTick += 1
         loadTitles()
         probeLocks()
+        if sessionsRootDescriptor < 0, prepareSessionsRoot() {
+            discoverRecentSessions()
+            processTrackedSessions()
+        }
         processLockedSessions()
         if maintenanceTick.isMultiple(of: 20) {
             processTrackedSessions(maximumFiles: 20)
@@ -149,6 +174,9 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         pendingFilesystemPaths.removeAll(keepingCapacity: true)
         let shouldDiscover = requiresRescan
         requiresRescan = false
+        if shouldDiscover || paths.contains(where: { $0.hasPrefix(locksURL.path) }) {
+            lockDirectoryRestartPending = true
+        }
         var changedFiles: [String] = []
         for path in paths {
             if path.hasSuffix(".jsonl") {
@@ -156,48 +184,79 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                 changedFiles.append(path)
             }
         }
-        if shouldDiscover { discoverRecentSessions() }
+        if shouldDiscover {
+            sessions.removeAll()
+            if prepareSessionsRoot(replacingExisting: true) { discoverRecentSessions() }
+        }
         probeLocks()
         process(paths: changedFiles)
         emitSnapshot()
     }
 
     private func discoverRecentSessions() {
+        guard let sessionsRootPath else { return }
         guard let enumerator = FileManager.default.enumerator(
-            at: sessionsURL,
+            at: URL(fileURLWithPath: sessionsRootPath, isDirectory: true),
             includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return }
 
         let cutoff = clock.now.addingTimeInterval(-86_400)
         var candidates: [(url: URL, modified: Date, locked: Bool)] = []
-        for case let fileURL as URL in enumerator where fileURL.pathExtension == "jsonl" {
-            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .contentModificationDateKey])
+        var visitedEntries = 0
+        for case let fileURL as URL in enumerator {
+            visitedEntries += 1
+            guard visitedEntries <= Self.maximumDiscoveryEntries else { break }
+            if enumerator.level > Self.maximumDiscoveryDepth {
+                enumerator.skipDescendants()
+                continue
+            }
+            guard fileURL.pathExtension == "jsonl" else { continue }
+            let values = try? fileURL.resourceValues(forKeys: [
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+                .contentModificationDateKey
+            ])
             guard values?.isRegularFile == true else { continue }
+            guard values?.isSymbolicLink != true else { continue }
             let fileID = Self.threadID(from: fileURL.lastPathComponent)
             let modified = values?.contentModificationDate ?? .distantPast
             let locked = lockedIDs.contains(fileID)
             if modified >= cutoff || locked {
-                candidates.append((fileURL, modified, locked))
+                let candidate = (fileURL, modified, locked)
+                if candidates.count < Self.maximumTrackedSessions {
+                    candidates.append(candidate)
+                } else if let leastUseful = candidates.indices.min(by: {
+                    Self.isBetterDiscoveryCandidate(candidates[$1], than: candidates[$0])
+                }), Self.isBetterDiscoveryCandidate(candidate, than: candidates[leastUseful]) {
+                    candidates[leastUseful] = candidate
+                }
             }
         }
-        candidates.sort {
-            if $0.locked != $1.locked { return $0.locked }
-            return $0.modified > $1.modified
-        }
-        for candidate in candidates.prefix(Self.maximumTrackedSessions) {
+        candidates.sort { Self.isBetterDiscoveryCandidate($0, than: $1) }
+        for candidate in candidates {
             track(path: candidate.url.path)
         }
     }
 
+    private static func isBetterDiscoveryCandidate(
+        _ lhs: (url: URL, modified: Date, locked: Bool),
+        than rhs: (url: URL, modified: Date, locked: Bool)
+    ) -> Bool {
+        if lhs.locked != rhs.locked { return lhs.locked }
+        return lhs.modified > rhs.modified
+    }
+
     private func track(path: String) {
+        guard sessionsRootDescriptor >= 0, let sessionsRootPath else { return }
         let original = URL(fileURLWithPath: path).standardizedFileURL
         let originalValues = try? original.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
         guard original.pathExtension == "jsonl",
               originalValues?.isRegularFile == true,
               originalValues?.isSymbolicLink != true else { return }
-        let candidate = original.resolvingSymlinksInPath()
-        let root = sessionsURL.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        guard let candidatePath = AnchoredFileAccess.canonicalPath(for: original) else { return }
+        let candidate = URL(fileURLWithPath: candidatePath)
+        let root = sessionsRootPath + "/"
         guard candidate.path.hasPrefix(root), sessions[candidate.path] == nil else { return }
         if sessions.count >= Self.maximumTrackedSessions,
            let oldest = sessions
@@ -253,11 +312,23 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
 
     @discardableResult
     private func process(path: String, byteBudget: Int) -> Int {
-        guard var session = sessions[path],
-              let attributes = try? FileManager.default.attributesOfItem(atPath: path),
-              let size = attributes[.size] as? NSNumber,
-              byteBudget > 0 else { return 0 }
-        let fileSize = size.uint64Value
+        guard var session = sessions[path], byteBudget > 0,
+              let relativePath = relativeSessionPath(for: path),
+              let descriptor = AnchoredFileAccess.openRegularFile(
+                relativePath: relativePath,
+                directoryDescriptor: sessionsRootDescriptor
+              ) else {
+            sessions.removeValue(forKey: path)
+            return 0
+        }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var status = stat()
+        guard fstat(descriptor, &status) == 0, status.st_size >= 0 else {
+            sessions.removeValue(forKey: path)
+            return 0
+        }
+        let fileSize = UInt64(status.st_size)
 
         if fileSize < session.offset {
             session.offset = 0
@@ -280,8 +351,6 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         }
 
         do {
-            let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
-            defer { try? handle.close() }
             let maximumRead = UInt64(byteBudget)
             let headerRead = min(UInt64(256 * 1_024), maximumRead / 4)
             var bytesRead = 0
@@ -331,12 +400,19 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     }
 
     private func parseLines(into session: inout Session) {
-        while let newline = session.remainder.firstIndex(of: 0x0A) {
+        var processedRecords = 0
+        while processedRecords < Self.maximumRecordsPerParse,
+              let newline = session.remainder.firstIndex(of: 0x0A) {
             let line = Data(session.remainder[..<newline])
             session.remainder.removeSubrange(...newline)
+            processedRecords += 1
             guard line.count <= 2 * 1_024 * 1_024,
                   let event = try? Self.decoder.decode(RolloutEnvelope.self, from: line) else { continue }
             apply(event, to: &session)
+        }
+        if processedRecords == Self.maximumRecordsPerParse,
+           session.remainder.firstIndex(of: 0x0A) != nil {
+            session.remainder.removeAll(keepingCapacity: true)
         }
         if session.remainder.count > 4 * 1_024 * 1_024 {
             session.remainder = Data()
@@ -578,14 +654,56 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     }
 
     private func probeLocks() {
-        guard let files = try? FileManager.default.contentsOfDirectory(at: locksURL, includingPropertiesForKeys: nil) else {
+        guard let directory = AnchoredFileAccess.openDirectory(locksURL) else {
             lockedIDs = []
+            lockDirectoryStream = nil
+            lockCycleActiveIDs.removeAll()
+            lockDirectoryRestartPending = false
             return
         }
-        lockedIDs = Set(files.compactMap { url in
-            guard url.pathExtension == "lock", Self.isActivelyLocked(url.path) else { return nil }
-            return url.deletingPathExtension().lastPathComponent
-        })
+        defer { close(directory.descriptor) }
+        if lockDirectoryStream == nil {
+            lockDirectoryStream = AnchoredFileAccess.DirectoryStream(directoryDescriptor: directory.descriptor)
+        }
+        guard let lockDirectoryStream else {
+            lockedIDs = []
+            lockCycleActiveIDs.removeAll()
+            return
+        }
+
+        var discovered = Set<String>()
+        let trackedIDs = Set(sessions.values.lazy.map(\.id).filter { UUID(uuidString: $0) != nil }.prefix(200))
+        var directlyActive = Set<String>()
+        for id in trackedIDs where Self.isActivelyLocked("\(id).lock", directoryDescriptor: directory.descriptor) {
+            directlyActive.insert(id)
+        }
+        lockedIDs.subtract(trackedIDs)
+        lockedIDs.formUnion(directlyActive)
+
+        var probes = 0
+        let batch = lockDirectoryStream.nextBatch(maximumEntries: Self.maximumLockEntriesPerPass)
+        for name in batch.names where probes < Self.maximumLockProbesPerPass {
+            guard name.hasSuffix(".lock") else { continue }
+            let id = String(name.dropLast(5))
+            guard UUID(uuidString: id) != nil else { continue }
+            probes += 1
+            if Self.isActivelyLocked(name, directoryDescriptor: directory.descriptor) {
+                discovered.insert(id)
+            }
+        }
+        lockCycleActiveIDs.formUnion(discovered)
+        if batch.reachedEnd {
+            lockCycleActiveIDs.subtract(trackedIDs)
+            lockCycleActiveIDs.formUnion(directlyActive)
+            lockedIDs = lockCycleActiveIDs
+            lockCycleActiveIDs.removeAll(keepingCapacity: true)
+            if lockDirectoryRestartPending {
+                self.lockDirectoryStream = nil
+                lockDirectoryRestartPending = false
+            }
+        } else {
+            lockedIDs.formUnion(discovered)
+        }
     }
 
     private func loadTitles() {
@@ -602,8 +720,12 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
               values?.isSymbolicLink != true,
               let size = values?.fileSize,
               size <= 16 * 1_024 * 1_024,
-              let data = try? Data(contentsOf: indexURL, options: .mappedIfSafe) else { return }
-        for line in data.split(separator: 0x0A) {
+              let data = BoundedFileReader.read(indexURL, maximumBytes: 16 * 1_024 * 1_024) else { return }
+        for line in data.split(
+            separator: 0x0A,
+            maxSplits: Self.maximumTitleRecords,
+            omittingEmptySubsequences: true
+        ).prefix(Self.maximumTitleRecords) {
             guard let title = try? Self.decoder.decode(ThreadTitleRecord.self, from: line) else { continue }
             titles[title.id] = title.threadName
         }
@@ -626,15 +748,34 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         return pieces.suffix(5).joined(separator: "-")
     }
 
-    private static func isActivelyLocked(_ path: String) -> Bool {
-        let descriptor = open(path, O_RDONLY)
-        guard descriptor >= 0 else { return false }
+    private static func isActivelyLocked(_ name: String, directoryDescriptor: Int32) -> Bool {
+        guard let descriptor = AnchoredFileAccess.openRegularFile(
+            relativePath: name,
+            directoryDescriptor: directoryDescriptor
+        ) else { return false }
         defer { close(descriptor) }
         if flock(descriptor, LOCK_EX | LOCK_NB) == 0 {
             flock(descriptor, LOCK_UN)
             return false
         }
         return errno == EWOULDBLOCK || errno == EAGAIN
+    }
+
+    private func prepareSessionsRoot(replacingExisting: Bool = false) -> Bool {
+        if sessionsRootDescriptor >= 0, !replacingExisting { return true }
+        guard let directory = AnchoredFileAccess.openDirectory(sessionsURL) else { return false }
+        if sessionsRootDescriptor >= 0 { close(sessionsRootDescriptor) }
+        sessionsRootDescriptor = directory.descriptor
+        sessionsRootPath = directory.resolvedPath
+        return true
+    }
+
+    private func relativeSessionPath(for path: String) -> String? {
+        guard let sessionsRootPath else { return nil }
+        let prefix = sessionsRootPath + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        let relative = String(path.dropFirst(prefix.count))
+        return relative.isEmpty ? nil : relative
     }
 
     private static let decoder: JSONDecoder = {

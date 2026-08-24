@@ -25,7 +25,7 @@ tracked_artifacts="$(git ls-files | grep -E '(^|/)(DerivedData|TestArtifacts|xcu
 [[ -z "$tracked_artifacts" ]] || { print -u2 "Generated or sensitive files are tracked:\n$tracked_artifacts"; exit 1; }
 
 project_file="CodexGauge.xcodeproj/project.pbxproj"
-grep -Eq 'MACOSX_DEPLOYMENT_TARGET = 14\.0;' "$project_file"
+grep -Eq 'MACOSX_DEPLOYMENT_TARGET = 14\.4;' "$project_file"
 grep -Eq 'ARCHS = arm64;' "$project_file"
 grep -Eq 'ENABLE_HARDENED_RUNTIME = YES;' "$project_file"
 grep -Eq 'ENABLE_APP_SANDBOX = NO;' "$project_file"

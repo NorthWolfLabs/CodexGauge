@@ -10,7 +10,7 @@ Thank you for helping improve CodexGauge.
 
 ## Development environment
 
-CodexGauge requires Apple Silicon, macOS 14 or later, and the exact stable Xcode release recorded in [.xcode-version](.xcode-version). Confirm it with:
+CodexGauge requires Apple Silicon, macOS 14.4 or later, and the exact stable Xcode release recorded in [.xcode-version](.xcode-version). Confirm it with:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./Scripts/check-toolchain.sh

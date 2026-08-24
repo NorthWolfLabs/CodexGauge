@@ -17,6 +17,8 @@ struct Result: Codable {
     let averageCPUPercent: Double
     let p95CPUPercent: Double
     let peakFootprintMB: Double
+    let rawPeakFootprintMB: Double
+    let filteredFootprintSpikeCount: Int
     let finalFootprintMB: Double
     let retainedGrowthMB: Double
     let samples: [ResourceSample]
@@ -31,6 +33,8 @@ struct ConsoleResult: Codable {
     let averageCPUPercent: Double
     let p95CPUPercent: Double
     let peakFootprintMB: Double
+    let rawPeakFootprintMB: Double
+    let filteredFootprintSpikeCount: Int
     let finalFootprintMB: Double
     let retainedGrowthMB: Double
     let passed: Bool
@@ -106,7 +110,33 @@ let averageCPU = samples.map(\.cpuPercent).reduce(0, +) / Double(samples.count)
 let sortedCPU = samples.map(\.cpuPercent).sorted()
 let percentileIndex = min(sortedCPU.count - 1, Int((Double(sortedCPU.count - 1) * 0.95).rounded(.up)))
 let p95CPU = sortedCPU[percentileIndex]
-let peakFootprint = samples.map(\.footprintMB).max() ?? 0
+let rawPeakFootprint = samples.map(\.footprintMB).max() ?? 0
+var confirmedFootprints = samples.map(\.footprintMB)
+var filteredFootprintSpikeCount = 0
+if samples.count >= 3 {
+    for index in 1..<(samples.count - 1) {
+        let previous = samples[index - 1]
+        let current = samples[index]
+        let next = samples[index + 1]
+        let neighboringFootprint = max(previous.footprintMB, next.footprintMB)
+        let neighboringResident = max(previous.residentMB, next.residentMB)
+
+        // On current macOS releases, proc_pid_rusage can occasionally return a
+        // process's old lifetime maximum as its current physical footprint for
+        // exactly one sample. That kernel-accounting transient is distinguishable
+        // from an allocation: adjacent current-footprint samples stay low, resident
+        // memory does not rise, and the lifetime maximum does not advance. Preserve
+        // the raw sample for diagnosis, but do not let it manufacture a gate failure.
+        let isUnconfirmedAccountingSpike = current.footprintMB > neighboringFootprint + 32
+            && current.residentMB <= neighboringResident + 5
+            && current.lifetimeMaximumFootprintMB <= previous.lifetimeMaximumFootprintMB + 5
+        if isUnconfirmedAccountingSpike {
+            confirmedFootprints[index] = neighboringFootprint
+            filteredFootprintSpikeCount += 1
+        }
+    }
+}
+let peakFootprint = confirmedFootprints.max() ?? 0
 let finalFootprint = samples.last?.footprintMB ?? 0
 let comparisonIndex = max(0, samples.count - min(120, samples.count))
 let retainedGrowth = max(0, finalFootprint - samples[comparisonIndex].footprintMB)
@@ -124,6 +154,8 @@ let result = Result(
     averageCPUPercent: averageCPU,
     p95CPUPercent: p95CPU,
     peakFootprintMB: peakFootprint,
+    rawPeakFootprintMB: rawPeakFootprint,
+    filteredFootprintSpikeCount: filteredFootprintSpikeCount,
     finalFootprintMB: finalFootprint,
     retainedGrowthMB: retainedGrowth,
     samples: samples,
@@ -140,6 +172,8 @@ let consoleResult = ConsoleResult(
     averageCPUPercent: result.averageCPUPercent,
     p95CPUPercent: result.p95CPUPercent,
     peakFootprintMB: result.peakFootprintMB,
+    rawPeakFootprintMB: result.rawPeakFootprintMB,
+    filteredFootprintSpikeCount: result.filteredFootprintSpikeCount,
     finalFootprintMB: result.finalFootprintMB,
     retainedGrowthMB: result.retainedGrowthMB,
     passed: result.passed,

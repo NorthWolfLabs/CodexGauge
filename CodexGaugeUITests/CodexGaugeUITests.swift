@@ -193,15 +193,20 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 2))
         XCTAssertFalse(notificationsWindow.textFields["allowance-threshold-field"].firstMatch.exists)
 
-        if toggle.isHittable {
-            toggle.click()
-        } else {
-            // XCUITest can report an otherwise visible native switch as non-hittable on
-            // headless macOS runners. Clicking its resolved center still exercises the
-            // same control and avoids coupling this test to the runner's window focus.
-            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
-        }
-        let fields = notificationsWindow.textFields
+        app.terminate()
+        let enabledApp = XCUIApplication()
+        enabledApp.launchArguments = ["-uiTestDemo", "-quotaNotifications", "YES"]
+        enabledApp.launch()
+        XCTAssertTrue(enabledApp.statusItems["codexgauge.statusItem"].waitForExistence(timeout: 5))
+        enabledApp.typeKey(",", modifierFlags: .command)
+        let enabledSettings = enabledApp.windows["General"]
+        XCTAssertTrue(enabledSettings.waitForExistence(timeout: 3))
+        enabledSettings.buttons["Notifications"].click()
+        let enabledNotifications = enabledApp.windows["Notifications"]
+        XCTAssertTrue(enabledNotifications.waitForExistence(timeout: 3))
+        let firstField = enabledNotifications.textFields["allowance-threshold-field"].firstMatch
+        XCTAssertTrue(firstField.waitForExistence(timeout: 2))
+        let fields = enabledNotifications.textFields
             .matching(identifier: "allowance-threshold-field")
             .allElementsBoundByIndex
         XCTAssertEqual(fields.compactMap { $0.value as? String }, ["20", "10", "5"])

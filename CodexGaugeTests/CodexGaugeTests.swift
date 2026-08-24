@@ -1,8 +1,27 @@
 import Foundation
 import CoreServices
 import LightweightCodeRequirements
+import Security
 import Testing
 @testable import CodexGauge
+
+private func testHostHasTeamSignature() -> Bool {
+    guard let executableURL = Bundle.main.executableURL else { return false }
+    var code: SecStaticCode?
+    guard SecStaticCodeCreateWithPath(executableURL as CFURL, [], &code) == errSecSuccess,
+          let code else {
+        return false
+    }
+
+    var information: CFDictionary?
+    let flags = SecCSFlags(rawValue: kSecCSSigningInformation)
+    guard SecCodeCopySigningInformation(code, flags, &information) == errSecSuccess,
+          let values = information as? [String: Any],
+          let teamID = values[kSecCodeInfoTeamIdentifier as String] as? String else {
+        return false
+    }
+    return !teamID.isEmpty
+}
 
 struct CodexGaugeTests {
     @MainActor
@@ -387,8 +406,8 @@ struct CodexGaugeTests {
 
     @Test(
         .disabled(
-            if: ProcessInfo.processInfo.environment["CI"] == "true",
-            "GitHub Actions ad-hoc signs XCTest hosts, so macOS does not enforce parent launch constraints there."
+            if: !testHostHasTeamSignature(),
+            "An Apple Development or Developer ID signed XCTest host is required to enforce parent launch constraints."
         )
     )
     func helperLaunchRequirementRejectsAProcessFromAnotherSigner() throws {

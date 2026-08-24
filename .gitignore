@@ -3,6 +3,8 @@ DerivedData/
 TestArtifacts/
 *.xcresult
 *.xcarchive
+*.trace
+*.trace.zip
 *.dmg
 *.mobileprovision
 *.p12

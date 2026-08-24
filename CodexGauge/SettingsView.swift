@@ -12,6 +12,7 @@ struct SettingsView: View {
     @Bindable var navigation: SettingsNavigationModel
     @State private var thresholdRules: [ThresholdRule]
     @FocusState private var codexHomeFocused: Bool
+    @FocusState private var focusedThresholdID: UUID?
 
     init(state: AppState, navigation: SettingsNavigationModel = SettingsNavigationModel()) {
         self.state = state
@@ -91,12 +92,22 @@ struct SettingsView: View {
                         .foregroundStyle(.green)
                 }
                 if let message = state.executableValidationMessage {
-                    Label(
-                        message,
-                        systemImage: message == "Codex helper verified." ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
-                    )
-                    .font(.caption)
-                    .foregroundStyle(message == "Codex helper verified." ? .green : .red)
+                    let verified = message == "OpenAI-signed Codex helper verified."
+                    if message == "Checking Codex helper…" {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text(message)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    } else {
+                        Label(
+                            message,
+                            systemImage: verified ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(verified ? .green : .red)
+                    }
                 }
                 Button("Check again") { Task { await state.reconnect() } }
             }
@@ -133,13 +144,25 @@ struct SettingsView: View {
                                     .foregroundStyle(.secondary)
                                     .frame(width: 14)
                                     .accessibilityHidden(true)
-                                TextField("", value: $rule.percentage, format: .number)
+                                TextField("", text: Binding(
+                                    get: { String(rule.percentage) },
+                                    set: { value in
+                                        let trimmed = value.trimmingCharacters(in: .whitespaces)
+                                        if trimmed.isEmpty {
+                                            rule.percentage = 0
+                                        } else if let percentage = Int(trimmed) {
+                                            rule.percentage = percentage
+                                        }
+                                    }
+                                ))
                                     .labelsHidden()
                                     .textFieldStyle(.roundedBorder)
                                     .monospacedDigit()
                                     .multilineTextAlignment(.trailing)
-                                    .frame(width: 44)
+                                    .frame(width: 52)
+                                    .focused($focusedThresholdID, equals: rule.id)
                                     .onSubmit(normalizeThresholds)
+                                    .accessibilityIdentifier("allowance-threshold-field")
                                     .accessibilityLabel("Remaining percentage")
                                     .help("Percentage remaining")
                                 Text("% remaining")
@@ -168,7 +191,6 @@ struct SettingsView: View {
                         .padding(.top, 8)
                         .disabled(thresholdRules.count >= 99)
                     }
-                    .onChange(of: thresholdRules) { _, _ in persistThresholds() }
                 }
             } header: {
                 Text("Allowance alerts")
@@ -186,6 +208,9 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .onChange(of: focusedThresholdID) { oldValue, newValue in
+            if oldValue != nil, newValue == nil { normalizeThresholds() }
+        }
     }
 
     private func addThreshold() {
@@ -195,12 +220,14 @@ struct SettingsView: View {
             ?? (1...99).first { !existing.contains($0) }
         if let value {
             thresholdRules.append(ThresholdRule(percentage: value))
+            persistThresholds()
         }
     }
 
     private func removeThreshold(_ id: UUID) {
         guard thresholdRules.count > 1 else { return }
         thresholdRules.removeAll { $0.id == id }
+        persistThresholds()
     }
 
     private func persistThresholds() {
@@ -208,8 +235,16 @@ struct SettingsView: View {
     }
 
     private func normalizeThresholds() {
-        let normalized = Array(Set(thresholdRules.map { max(1, min(99, $0.percentage)) })).sorted(by: >)
-        thresholdRules = normalized.map { ThresholdRule(percentage: $0) }
+        var seen = Set<Int>()
+        thresholdRules = thresholdRules
+            .map { rule in
+                var normalized = rule
+                normalized.percentage = max(1, min(99, normalized.percentage))
+                return normalized
+            }
+            .filter { seen.insert($0.percentage).inserted }
+            .sorted { $0.percentage > $1.percentage }
+        persistThresholds()
     }
 
     private func chooseExecutable() {

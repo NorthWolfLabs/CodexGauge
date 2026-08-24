@@ -1,7 +1,13 @@
 import Foundation
 
-struct DefaultCodexExecutableLocator: CodexExecutableLocating {
-    func locate(override: String?) -> URL? {
+actor DefaultCodexExecutableLocator: CodexExecutableLocating {
+    private let validator: any CodexExecutableValidating
+
+    init(validator: any CodexExecutableValidating = DefaultCodexExecutableValidator()) {
+        self.validator = validator
+    }
+
+    func locate(override: String?) async -> URL? {
         var candidates: [String] = []
         if let override, !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             candidates.append(NSString(string: override).expandingTildeInPath)
@@ -16,7 +22,7 @@ struct DefaultCodexExecutableLocator: CodexExecutableLocating {
 
         var seen = Set<String>()
         for path in candidates where seen.insert(path).inserted {
-            guard let trusted = try? CodexExecutableTrust.validate(URL(fileURLWithPath: path)) else { continue }
+            guard let trusted = try? await validator.validate(URL(fileURLWithPath: path)) else { continue }
             return trusted
         }
         return nil

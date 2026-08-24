@@ -13,14 +13,43 @@ private struct DemoNotificationScheduler: NotificationScheduling {
 enum DemoData {
     static func state() -> AppState {
         let arguments = Set(ProcessInfo.processInfo.arguments)
+        let defaultsSuite = "com.northwolflabs.CodexGauge.demo.\(ProcessInfo.processInfo.processIdentifier)"
+        let demoDefaults = UserDefaults(suiteName: defaultsSuite)!
+        demoDefaults.removePersistentDomain(forName: defaultsSuite)
         let notificationStatus: NotificationAuthorizationState = arguments.contains("-uiTestDeniedNotifications")
             ? .denied
             : .authorized
         let state = AppState(
+            settings: SettingsStore(defaults: demoDefaults),
             notifications: DemoNotificationScheduler(status: notificationStatus),
             startImmediately: false
         )
+        if arguments.contains("-uiTestInvalidThresholds") {
+            state.settings.quotaNotificationsEnabled = true
+            state.settings.notificationThresholds = [0, 100]
+        }
         let now = Date.now
+        let demoActivity = arguments.contains("-uiTestZeroActivity")
+            ? AccountActivity(
+                lifetimeTokens: 0,
+                peakDailyTokens: 0,
+                longestRunningTurnSeconds: 0,
+                currentStreakDays: 0,
+                longestStreakDays: 0,
+                dailyUsage: (0..<7).map { offset in
+                    DailyUsage(date: Calendar.current.date(byAdding: .day, value: offset - 6, to: now)!, tokens: 0)
+                }
+            )
+            : AccountActivity(
+                lifetimeTokens: 42_800_000,
+                peakDailyTokens: 2_100_000,
+                longestRunningTurnSeconds: 1_804,
+                currentStreakDays: 9,
+                longestStreakDays: 21,
+                dailyUsage: (0..<7).map { offset in
+                    DailyUsage(date: Calendar.current.date(byAdding: .day, value: offset - 6, to: now)!, tokens: Int64((offset + 2) * 210_000))
+                }
+            )
         state.freshness = .fresh
         state.executableURL = URL(fileURLWithPath: "/Applications/ChatGPT.app/Contents/Resources/codex")
         state.accountSnapshot = AccountSnapshot(
@@ -54,16 +83,7 @@ enum DemoData {
                 )
             ],
             earnedResetCount: 2,
-            activity: AccountActivity(
-                lifetimeTokens: 42_800_000,
-                peakDailyTokens: 2_100_000,
-                longestRunningTurnSeconds: 1_804,
-                currentStreakDays: 9,
-                longestStreakDays: 21,
-                dailyUsage: (0..<7).map { offset in
-                    DailyUsage(date: Calendar.current.date(byAdding: .day, value: offset - 6, to: now)!, tokens: Int64((offset + 2) * 210_000))
-                }
-            ),
+            activity: demoActivity,
             fetchedAt: now
         )
         state.conversations = [
@@ -136,6 +156,72 @@ enum DemoData {
             state.errorMessage = "Open ChatGPT and sign in to view Codex allowances."
         }
         state.notificationAuthorization = notificationStatus
+        if arguments.contains("-performanceStress") {
+            state.settings.refreshInterval = 1
+            state.conversations += (14..<200).map { recentConversation(offset: $0, now: now) }
+            Task { @MainActor [weak state] in
+                var tick = 0.0
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1))
+                    guard let state else { break }
+                    tick += 1
+                    if let first = state.conversations.first {
+                        state.conversations[0] = ConversationTelemetry(
+                            id: first.id,
+                            title: first.title,
+                            workspace: first.workspace,
+                            model: first.model,
+                            state: first.state,
+                            activity: tick.truncatingRemainder(dividingBy: 2) == 0 ? .thinking : .usingTool,
+                            tokensPerMinute: 12_480 + tick * 75,
+                            tokensPerFiveMinutes: first.tokensPerFiveMinutes,
+                            callsPerMinute: first.callsPerMinute,
+                            totalTokens: first.totalTokens,
+                            recentTokenMix: first.recentTokenMix,
+                            latestContextPercent: first.latestContextPercent,
+                            turnStartedAt: first.turnStartedAt,
+                            lastTurnDurationSeconds: first.lastTurnDurationSeconds,
+                            latestOutputTokens: first.latestOutputTokens,
+                            timeToFirstTokenMilliseconds: first.timeToFirstTokenMilliseconds,
+                            attentionEventAt: first.attentionEventAt,
+                            agentCount: first.agentCount,
+                            lastActivity: .now
+                        )
+                    }
+                    if let snapshot = state.accountSnapshot {
+                        let allowancePulse = Int(tick).isMultiple(of: 2) ? -1 : 1
+                        let buckets = snapshot.buckets.map { bucket in
+                            QuotaBucket(
+                                id: bucket.id,
+                                name: bucket.name,
+                                plan: bucket.plan,
+                                windows: bucket.windows.map { window in
+                                    QuotaWindow(
+                                        id: window.id,
+                                        kind: window.kind,
+                                        usedPercent: window.usedPercent + allowancePulse,
+                                        durationMinutes: window.durationMinutes,
+                                        resetsAt: window.resetsAt
+                                    )
+                                },
+                                credits: bucket.credits,
+                                spendControl: bucket.spendControl,
+                                spendControlReached: bucket.spendControlReached,
+                                reachedReason: bucket.reachedReason
+                            )
+                        }
+                        state.accountSnapshot = AccountSnapshot(
+                            accountType: snapshot.accountType,
+                            plan: snapshot.plan,
+                            buckets: buckets,
+                            earnedResetCount: snapshot.earnedResetCount,
+                            activity: snapshot.activity,
+                            fetchedAt: .now
+                        )
+                    }
+                }
+            }
+        }
         if arguments.contains("-uiTestOversizedValues"), let original = state.conversations.first {
             state.conversations[0] = ConversationTelemetry(
                 id: original.id,

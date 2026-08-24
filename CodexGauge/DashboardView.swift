@@ -112,19 +112,21 @@ struct DashboardView: View {
         }
     }
 
-    private struct MixSlice: Identifiable {
-        let name: String
-        let tokens: Int64
-        var id: String { name }
-    }
-
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var state: AppState
+    @Bindable var clock: VisibleSurfaceClock
     @State private var selection: Section? = .overview
     @State private var activityRange: ActivityRange = .week
     @State private var selectedActivityDate: Date?
     @State private var throughputHistory: [ThroughputSample] = []
     @State private var recentTaskLimit = 10
+
+    init(state: AppState, clock: VisibleSurfaceClock) {
+        self.state = state
+        self.clock = clock
+        let showActivity = ProcessInfo.processInfo.arguments.contains("-performanceDashboardActivity")
+        _selection = State(initialValue: showActivity ? .activity : .overview)
+    }
 
     private var liveConversations: [ConversationTelemetry] {
         state.conversations.filter(\.isLive).sorted {
@@ -163,13 +165,10 @@ struct DashboardView: View {
                 .disabled(state.isRefreshing || state.executableURL == nil)
             }
         }
-        .task {
-            if selection == .overview { recordThroughput() }
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                guard !Task.isCancelled else { break }
-                if selection == .overview { recordThroughput() }
-            }
+        .onAppear { recordThroughput() }
+        .onChange(of: liveConversations) { _, _ in
+            guard selection == .overview else { return }
+            recordThroughput()
         }
         .onChange(of: activityRange) { _, _ in selectedActivityDate = nil }
         .onChange(of: selection) { _, newValue in
@@ -363,7 +362,7 @@ struct DashboardView: View {
     }
 
     private var liveThroughputChart: some View {
-        let now = state.currentDate
+        let now = throughputHistory.last?.date ?? state.currentDate
         let cutoff = now.addingTimeInterval(-300)
         let samples = throughputHistory.filter { $0.date >= cutoff && $0.rate.isFinite && $0.rate >= 0 }
         let sampleCounts = Dictionary(grouping: samples, by: \.taskID).mapValues(\.count)
@@ -393,7 +392,6 @@ struct DashboardView: View {
         }
         .chartYAxisLabel("Tokens per minute")
         .chartLegend(position: .bottom, alignment: .leading)
-        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: throughputHistory)
         .accessibilityChartDescriptor(ThroughputChartDescriptor(
             samples: samples,
             start: cutoff,
@@ -422,12 +420,12 @@ struct DashboardView: View {
                 }
 
                 HStack(spacing: 12) {
-                    dashboardValue("Current rate", "\(GaugeFormatting.tokenRate(conversation.tokensPerMinute)) tok/min", symbol: "speedometer")
-                    dashboardValue("5-minute average", "\(GaugeFormatting.tokenRate(conversation.tokensPerFiveMinutes)) tok/min", symbol: "chart.line.uptrend.xyaxis")
+                    dashboardValue("Current rate", "\(GaugeFormatting.tokenRate(conversation.tokensPerMinute)) tokens/min", symbol: "speedometer")
+                    dashboardValue("5-minute average", "\(GaugeFormatting.tokenRate(conversation.tokensPerFiveMinutes)) tokens/min", symbol: "chart.line.uptrend.xyaxis")
                     if let calls = conversation.callsPerMinute {
                         dashboardValue("Model calls", String(format: "%.1f/min", calls), symbol: "cpu")
                     }
-                    turnDurationValue(conversation)
+                    DashboardTurnDurationValue(startedAt: conversation.turnStartedAt, clock: clock)
                 }
 
                 if let rawContext = conversation.latestContextPercent, rawContext.isFinite {
@@ -440,21 +438,10 @@ struct DashboardView: View {
                     .accessibilityValue("\(Int(context.rounded())) percent filled; minimum 0, maximum 100")
                 }
 
-                let slices = tokenMix(conversation.recentTokenMix)
-                if !slices.isEmpty {
+                if conversation.recentTokenMix.total > 0 {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("Token mix · last 5 minutes").font(.caption.weight(.medium))
-                        Chart(slices) { slice in
-                            BarMark(x: .value("Tokens", slice.tokens), y: .value("Period", "5 minutes"))
-                                .foregroundStyle(by: .value("Type", slice.name))
-                        }
-                        .chartXAxis(.hidden).chartYAxis(.hidden)
-                        .chartLegend(position: .bottom, alignment: .leading)
-                        .frame(height: 48)
-                        .accessibilityChartDescriptor(TokenMixChartDescriptor(
-                            title: "Token mix for the last five minutes",
-                            values: slices.map { TokenMixChartValue(name: $0.name, tokens: $0.tokens) }
-                        ))
+                        TokenMixBar(mix: conversation.recentTokenMix)
                     }
                 }
 
@@ -506,13 +493,14 @@ struct DashboardView: View {
     }
 
     private func detailedUsageChart(_ usage: [DailyUsage]) -> some View {
-        Chart {
+        let maximumTokens = min(Int64(1_000_000_000_000_000), max(Int64(1), usage.map(\.tokens).max() ?? 1))
+        return Chart {
             ForEach(usage) { day in
                 if usage.count > 90 {
-                    LineMark(x: .value("Day", day.date), y: .value("Tokens", day.tokens))
+                    LineMark(x: .value("Day", day.date), y: .value("Tokens", min(day.tokens, maximumTokens)))
                         .foregroundStyle(.tint).interpolationMethod(.monotone)
                 } else {
-                    BarMark(x: .value("Day", day.date, unit: .day), y: .value("Tokens", day.tokens))
+                    BarMark(x: .value("Day", day.date, unit: .day), y: .value("Tokens", min(day.tokens, maximumTokens)))
                         .foregroundStyle(.tint).cornerRadius(3)
                 }
             }
@@ -528,8 +516,9 @@ struct DashboardView: View {
                     }
             }
         }
+        .chartYScale(domain: 0...max(1, Double(maximumTokens) * 1.08))
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: min(8, usage.count))) {
+            AxisMarks(values: .automatic(desiredCount: max(1, min(8, usage.count)))) {
                 AxisGridLine(); AxisTick()
                 AxisValueLabel(format: usage.count <= 7 ? .dateTime.weekday(.abbreviated) : .dateTime.month(.abbreviated).day())
             }
@@ -553,12 +542,14 @@ struct DashboardView: View {
     }
 
     private func usageChart(_ usage: [DailyUsage]) -> some View {
-        Chart(usage) { day in
-            BarMark(x: .value("Day", day.date, unit: .day), y: .value("Tokens", day.tokens))
+        let maximumTokens = min(Int64(1_000_000_000_000_000), max(Int64(1), usage.map(\.tokens).max() ?? 1))
+        return Chart(usage) { day in
+            BarMark(x: .value("Day", day.date, unit: .day), y: .value("Tokens", min(day.tokens, maximumTokens)))
                 .foregroundStyle(.tint).cornerRadius(3)
         }
+        .chartYScale(domain: 0...max(1, Double(maximumTokens) * 1.08))
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: min(7, usage.count))) {
+            AxisMarks(values: .automatic(desiredCount: max(1, min(7, usage.count)))) {
                 AxisGridLine(); AxisTick(); AxisValueLabel(format: .dateTime.month(.abbreviated).day())
             }
         }
@@ -664,16 +655,8 @@ struct DashboardView: View {
         return (formatted, comparisonDetail, change >= 0 ? "arrow.up.right" : "arrow.down.right")
     }
 
-    private func tokenMix(_ mix: TokenBreakdown) -> [MixSlice] {
-        [
-            MixSlice(name: "Input", tokens: mix.input),
-            MixSlice(name: "Cached input", tokens: mix.cachedInput),
-            MixSlice(name: "Output", tokens: mix.output),
-            MixSlice(name: "Reasoning", tokens: mix.reasoningOutput)
-        ].filter { $0.tokens > 0 }
-    }
-
     private func recordThroughput() {
+        PerformanceSignposts.event("Chart update")
         let now = state.currentDate
         let samples = liveConversations.map { conversation in
             let finiteRate = conversation.tokensPerMinute.isFinite ? conversation.tokensPerMinute : 0
@@ -720,16 +703,6 @@ struct DashboardView: View {
         return date.formatted(.dateTime.month(.abbreviated).day())
     }
 
-    private func turnDurationValue(_ conversation: ConversationTelemetry) -> some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            dashboardValue(
-                "Turn",
-                conversation.turnStartedAt.map { GaugeFormatting.duration(context.date.timeIntervalSince($0)) } ?? "—",
-                symbol: "timer"
-            )
-        }
-    }
-
     private func phaseTitle(_ conversation: ConversationTelemetry) -> String {
         switch conversation.state {
         case .needsApproval: "Approval needed"
@@ -768,6 +741,24 @@ struct DashboardView: View {
 }
 
 #Preview("Dashboard") {
-    DashboardView(state: DemoData.state())
+    DashboardView(state: DemoData.state(), clock: VisibleSurfaceClock())
         .frame(width: 920, height: 640)
+}
+
+private struct DashboardTurnDurationValue: View {
+    let startedAt: Date?
+    @Bindable var clock: VisibleSurfaceClock
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label("Turn", systemImage: "timer")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(startedAt.map { GaugeFormatting.duration(clock.now.timeIntervalSince($0)) } ?? "—")
+                .font(.subheadline.weight(.medium).monospacedDigit())
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
 }

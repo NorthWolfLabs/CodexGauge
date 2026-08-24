@@ -47,3 +47,20 @@ enum CodexExecutableTrust {
         return resolved
     }
 }
+
+actor DefaultCodexExecutableValidator: CodexExecutableValidating {
+    private let validationQueue = DispatchQueue(
+        label: "com.northwolflabs.CodexGauge.executable-validation",
+        qos: .utility
+    )
+
+    func validate(_ candidate: URL) async throws -> URL {
+        let signpost = PerformanceSignposts.begin("Codex executable validation")
+        defer { PerformanceSignposts.end("Codex executable validation", signpost) }
+        return try await withCheckedThrowingContinuation { continuation in
+            validationQueue.async {
+                continuation.resume(with: Result { try CodexExecutableTrust.validate(candidate) })
+            }
+        }
+    }
+}

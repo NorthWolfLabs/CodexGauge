@@ -24,9 +24,19 @@ fail() {
 
 reject_release_diagnostics() {
   local log_file="$1"
-  if grep -Ei \
-    'Invalid frame dimension|Custom UnitPoint values are not supported|main actor-isolated.*nonisolated|main-thread XCTest|accessibility.*failed|warning:.*(Sendable|actor-isolated|concurr)' \
-    "$log_file"; then
+  local source_command=(cat "$log_file")
+  if [[ "${2:-}" == "xctest-runtime" ]]; then
+    # Xcode 26.6 emits this internal testmanager QoS diagnostic while attaching a
+    # hosted unit-test bundle. It reproduces with all Codex work disabled and does
+    # not occur in a standalone Release launch. Keep the exception exact and scoped
+    # to the XCTest runtime log; exported-app and performance logs stay unfiltered.
+    source_command=(grep -Ev \
+      'com\.apple\.runtime-issues:Hang Risk.*"message":"\[Internal\] Thread running at User-interactive quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class\. Investigate ways to avoid priority inversions".*"antipattern trigger":"dispatch_semaphore_wait"' \
+      "$log_file")
+  fi
+  if "${source_command[@]}" | grep -Ei \
+    'com\.apple\.runtime-issues|Invalid frame dimension|negative or non-finite|Custom UnitPoint values are not supported|Charts:|Unable to simultaneously satisfy constraints|Publishing changes from within view updates|AttributeGraph: cycle|main thread as it may lead to UI unresponsiveness|main actor-isolated.*nonisolated|main-thread XCTest|accessibility.*failed|warning:.*(Sendable|actor-isolated|concurr)' \
+    ; then
     fail "release-blocking warning or runtime fault found in $log_file"
   fi
 }
@@ -83,7 +93,7 @@ run_tests() {
     --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
     > "$runtime_log" || true
   reject_release_diagnostics "$test_log"
-  reject_release_diagnostics "$runtime_log"
+  reject_release_diagnostics "$runtime_log" xctest-runtime
 }
 
 archive_app() {
@@ -200,13 +210,44 @@ verify_release() {
   (cd "$release_root" && shasum -a 256 -c SHA256SUMS)
 }
 
+run_performance() {
+  [[ -d "$app_path" ]] || fail "export the Release app before running performance checks"
+  PERFORMANCE_APP_PATH="$app_path" \
+    PERFORMANCE_OUTPUT_ROOT="$release_root/performance" \
+    "$project_root/Scripts/performance-check.sh"
+}
+
+smoke_test_dmg() {
+  [[ -f "$dmg_path" ]] || fail "package the DMG before running its smoke test"
+  local mount_point
+  mount_point="$(mktemp -d "$release_root/dmg-smoke.XXXXXX")"
+  cleanup_dmg_smoke() {
+    hdiutil detach "$mount_point" -quiet 2>/dev/null || true
+    rmdir "$mount_point" 2>/dev/null || true
+  }
+  trap cleanup_dmg_smoke EXIT INT TERM
+  hdiutil attach "$dmg_path" -readonly -nobrowse -mountpoint "$mount_point" -quiet
+  if ! PERFORMANCE_MODE=smoke \
+    PERFORMANCE_APP_PATH="$mount_point/$product_name.app" \
+    PERFORMANCE_OUTPUT_ROOT="$release_root/dmg-smoke-results" \
+    "$project_root/Scripts/performance-check.sh"; then
+    cleanup_dmg_smoke
+    trap - EXIT INT TERM
+    return 1
+  fi
+  cleanup_dmg_smoke
+  trap - EXIT INT TERM
+}
+
 run_all() {
   validate_tree
   run_tests
   archive_app
   export_app
+  run_performance
   notarize_app
   package_dmg
+  smoke_test_dmg
   notarize_dmg
   write_artifacts
   verify_release
@@ -223,6 +264,8 @@ case "${1:-all}" in
   notarize-dmg) notarize_dmg ;;
   artifacts) write_artifacts ;;
   verify) verify_release ;;
+  performance) run_performance ;;
+  smoke-dmg) smoke_test_dmg ;;
   all) run_all ;;
-  *) fail "unknown stage '$1' (validate, test, archive, export, notarize-app, package, notarize-dmg, artifacts, verify, all)" ;;
+  *) fail "unknown stage '$1' (validate, test, archive, export, performance, notarize-app, package, smoke-dmg, notarize-dmg, artifacts, verify, all)" ;;
 esac

@@ -97,6 +97,7 @@ actor CodexAppServerClient: AccountTelemetryProviding {
     private let executableURL: URL
     private let codexHomeURL: URL
     private let clock: any ClockProviding
+    private let executableValidator: any CodexExecutableValidating
     private let skipTrustValidation: Bool
     private var process: Process?
     private var inputHandle: FileHandle?
@@ -114,11 +115,13 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         executableURL: URL,
         codexHomeURL: URL,
         clock: any ClockProviding = SystemClock(),
+        executableValidator: any CodexExecutableValidating = DefaultCodexExecutableValidator(),
         skipTrustValidation: Bool = false
     ) {
         self.executableURL = executableURL
         self.codexHomeURL = codexHomeURL
         self.clock = clock
+        self.executableValidator = executableValidator
         self.skipTrustValidation = skipTrustValidation
     }
 
@@ -186,7 +189,7 @@ actor CodexAppServerClient: AccountTelemetryProviding {
 
     private func ensureInitialized() async throws {
         if initialized, process?.isRunning == true { return }
-        try startProcess()
+        try await startProcess()
         _ = try await request(
             method: "initialize",
             params: [
@@ -202,10 +205,10 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         initialized = true
     }
 
-    private func startProcess() throws {
+    private func startProcess() async throws {
         let launchURL = skipTrustValidation
             ? executableURL.standardizedFileURL.resolvingSymlinksInPath()
-            : try CodexExecutableTrust.validate(executableURL)
+            : try await executableValidator.validate(executableURL)
         guard FileManager.default.isExecutableFile(atPath: launchURL.path) else {
             throw CodexAppServerError.executableUnavailable
         }

@@ -387,7 +387,11 @@ protocol SessionTelemetryProviding: Sendable {
 }
 
 protocol CodexExecutableLocating: Sendable {
-    func locate(override: String?) -> URL?
+    func locate(override: String?) async -> URL?
+}
+
+protocol CodexExecutableValidating: Sendable {
+    func validate(_ candidate: URL) async throws -> URL
 }
 
 @MainActor

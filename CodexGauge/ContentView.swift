@@ -5,25 +5,31 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var state: AppState
+    @Bindable var clock: VisibleSurfaceClock
     let onShowDashboard: () -> Void
     let onShowSettings: () -> Void
     let onShowHelp: () -> Void
     let onShowMenu: () -> Void
+    let onContentSizeInvalidated: () -> Void
     let onDisclosureExpansionChanged: (Bool) -> Void
 
     init(
         state: AppState,
+        clock: VisibleSurfaceClock,
         onShowDashboard: @escaping () -> Void = {},
         onShowSettings: @escaping () -> Void = {},
         onShowHelp: @escaping () -> Void = {},
         onShowMenu: @escaping () -> Void = {},
+        onContentSizeInvalidated: @escaping () -> Void = {},
         onDisclosureExpansionChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.state = state
+        self.clock = clock
         self.onShowDashboard = onShowDashboard
         self.onShowSettings = onShowSettings
         self.onShowHelp = onShowHelp
         self.onShowMenu = onShowMenu
+        self.onContentSizeInvalidated = onContentSizeInvalidated
         self.onDisclosureExpansionChanged = onDisclosureExpansionChanged
     }
 
@@ -50,6 +56,9 @@ struct ContentView: View {
         .background(.regularMaterial)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("gauge-panel")
+        .onChange(of: state.hasLoadedConversations) { _, _ in onContentSizeInvalidated() }
+        .onChange(of: state.conversations.count) { _, _ in onContentSizeInvalidated() }
+        .onChange(of: state.accountSnapshot?.buckets.count) { _, _ in onContentSizeInvalidated() }
     }
 
     private var statusSection: some View {
@@ -75,10 +84,7 @@ struct ContentView: View {
                     freshnessLabel
                     if let reset = limiting.resetsAt {
                         Text("•").foregroundStyle(.tertiary)
-                        TimelineView(.periodic(from: .now, by: 30)) { context in
-                            Text(GaugeFormatting.resetCountdown(to: reset, now: context.date))
-                                .help(GaugeFormatting.exactDate(reset))
-                        }
+                        ResetCountdownText(reset: reset, clock: clock)
                     }
                 }
                 .font(.caption)
@@ -126,6 +132,7 @@ struct ContentView: View {
                         earnedResetCount: snapshot.earnedResetCount,
                         isFresh: state.displayFreshness == .fresh,
                         now: state.currentDate,
+                        clock: clock,
                         onExpansionChanged: onDisclosureExpansionChanged
                     )
                 }
@@ -181,6 +188,7 @@ struct ContentView: View {
                     ForEach(Array(live.prefix(3))) { conversation in
                         LiveConversationRow(
                             conversation: conversation,
+                            clock: clock,
                             onExpansionChanged: onDisclosureExpansionChanged
                         )
                     }
@@ -223,7 +231,6 @@ struct ContentView: View {
         }
         .padding(16)
         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: state.hasLoadedConversations)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: state.conversations.map(\.id))
     }
 
     private func activitySection(_ activity: AccountActivity) -> some View {
@@ -317,27 +324,7 @@ struct ContentView: View {
     private var footer: some View {
         HStack(spacing: 12) {
             Spacer()
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                Button {
-                    Task { await state.refresh() }
-                } label: {
-                    Group {
-                        if state.isRefreshing {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                    }
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 34, height: 34)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.borderless)
-                .help(refreshHelp(now: context.date))
-                .accessibilityLabel("Refresh allowances")
-                .accessibilityHint(refreshHelp(now: context.date))
-                .disabled(state.isRefreshing || state.executableURL == nil)
-            }
+            RefreshAllowancesButton(state: state, clock: clock)
 
             Button(action: onShowDashboard) {
                 Image(systemName: "chart.xyaxis.line")
@@ -364,12 +351,6 @@ struct ContentView: View {
         .padding(12)
     }
 
-    private func refreshHelp(now: Date) -> String {
-        if state.isRefreshing { return "Refreshing allowances" }
-        guard let fetchedAt = state.accountSnapshot?.fetchedAt else { return "Refresh allowances. No update available yet." }
-        return "Refresh allowances. \(GaugeFormatting.updatedText(since: fetchedAt, now: now))."
-    }
-
     private func statusColor(for remaining: Int) -> Color {
         if remaining <= 5 { return .red }
         if remaining <= 20 { return .orange }
@@ -382,13 +363,14 @@ private struct QuotaBucketView: View {
     let earnedResetCount: Int?
     let isFresh: Bool
     let now: Date
+    @Bindable var clock: VisibleSurfaceClock
     let onExpansionChanged: (Bool) -> Void
 
     var body: some View {
         FullWidthDisclosure(indicatorTrailing: true, onExpansionChanged: onExpansionChanged) {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(bucket.windows) { window in
-                    QuotaWindowView(window: window, isFresh: isFresh, now: now)
+                    QuotaWindowView(window: window, isFresh: isFresh, now: now, clock: clock)
                 }
                 if let credits = bucket.credits, credits.hasCredits {
                     detail("Credits", credits.unlimited ? "Unlimited" : credits.balance ?? "Available")
@@ -431,6 +413,7 @@ private struct QuotaWindowView: View {
     let window: QuotaWindow
     let isFresh: Bool
     let now: Date
+    @Bindable var clock: VisibleSurfaceClock
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -449,7 +432,7 @@ private struct QuotaWindowView: View {
                 .accessibilityValue(gaugeAccessibilityValue)
             if let reset = window.resetsAt {
                 HStack {
-                    Text(GaugeFormatting.resetCountdown(to: reset, now: now))
+                    ResetCountdownText(reset: reset, clock: clock)
                     Spacer()
                     Text(GaugeFormatting.exactDate(reset))
                 }
@@ -481,6 +464,7 @@ private struct QuotaWindowView: View {
 private struct LiveConversationRow: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let conversation: ConversationTelemetry
+    @Bindable var clock: VisibleSurfaceClock
     let onExpansionChanged: (Bool) -> Void
 
     var body: some View {
@@ -516,7 +500,7 @@ private struct LiveConversationRow: View {
                             .font(.subheadline.weight(.medium).monospacedDigit())
                             .contentTransition(.numericText())
                             .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: conversation.tokensPerMinute)
-                        Text("tok/min")
+                        Text("tokens/min")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -534,10 +518,7 @@ private struct LiveConversationRow: View {
                             .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: context)
                     }
                     if let startedAt = conversation.turnStartedAt {
-                        TimelineView(.periodic(from: .now, by: 1)) { context in
-                            Label(GaugeFormatting.duration(context.date.timeIntervalSince(startedAt)), systemImage: "timer")
-                                .monospacedDigit()
-                        }
+                        TurnDurationLabel(startedAt: startedAt, clock: clock)
                     }
                 }
                 .font(.caption2)
@@ -636,7 +617,7 @@ private struct LiveConversationDetails: View {
                 ConversationMetricCard(
                     title: "5-minute pace",
                     value: GaugeFormatting.tokenRate(conversation.tokensPerFiveMinutes),
-                    unit: "tok/min"
+                    unit: "tokens/min"
                 )
                 if let calls = conversation.callsPerMinute {
                     ConversationMetricCard(
@@ -727,66 +708,9 @@ private struct ConversationMetricCard: View {
     }
 }
 
-private struct TokenMixBar: View {
-    let mix: TokenBreakdown
-
-    private var slices: [(String, Int64, Color)] {
-        [
-            ("Input", mix.input, .blue),
-            ("Cached", mix.cachedInput, .cyan),
-            ("Output", mix.output, .green),
-            ("Reasoning", mix.reasoningOutput, .purple)
-        ].filter { $0.1 > 0 }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Canvas { context, size in
-                guard size.width.isFinite, size.height.isFinite,
-                      size.width > 0, size.height > 0 else { return }
-
-                let gap: CGFloat = 2
-                let gapWidth = CGFloat(max(0, slices.count - 1)) * gap
-                let availableWidth = max(0, size.width - gapWidth)
-                let total = slices.reduce(0.0) { $0 + Double($1.1) }
-                guard total.isFinite, total > 0 else { return }
-
-                var x: CGFloat = 0
-                for slice in slices {
-                    let fraction = Double(slice.1) / total
-                    let width = availableWidth * fraction
-                    guard width.isFinite, width >= 0 else { continue }
-                    let rect = CGRect(x: x, y: 0, width: width, height: size.height)
-                    context.fill(
-                        Path(roundedRect: rect, cornerRadius: 2),
-                        with: .color(slice.2)
-                    )
-                    x += width + gap
-                }
-            }
-            .frame(height: 7)
-
-            HStack(spacing: 10) {
-                ForEach(Array(slices.enumerated()), id: \.offset) { _, slice in
-                    HStack(spacing: 3) {
-                        Circle().fill(slice.2).frame(width: 5, height: 5)
-                        Text("\(slice.0) \(GaugeFormatting.tokenCount(slice.1))")
-                    }
-                }
-            }
-            .font(.caption2)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-        }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Token mix for the last five minutes")
-        .accessibilityValue(slices.map { "\($0.0), \(GaugeFormatting.tokenCount($0.1)) tokens" }.joined(separator: "; "))
-    }
-}
-
 private struct FullWidthDisclosure<Label: View, Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isExpanded = false
+    @State private var isExpanded = ProcessInfo.processInfo.arguments.contains("-performanceExpanded")
     var indicatorTrailing = false
     var identifier = "disclosure-control"
     var onExpansionChanged: (Bool) -> Void = { _ in }
@@ -810,9 +734,11 @@ private struct FullWidthDisclosure<Label: View, Content: View>: View {
                     if indicatorTrailing { disclosureIndicator }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: 28)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .focusable()
             .accessibilityIdentifier(identifier)
             .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
             .accessibilityHint(isExpanded ? "Collapse details" : "Expand details")
@@ -830,6 +756,62 @@ private struct FullWidthDisclosure<Label: View, Content: View>: View {
     }
 }
 
+private struct ResetCountdownText: View {
+    let reset: Date
+    @Bindable var clock: VisibleSurfaceClock
+
+    var body: some View {
+        Text(GaugeFormatting.resetCountdown(to: reset, now: clock.now))
+            .monospacedDigit()
+            .help(GaugeFormatting.exactDate(reset))
+    }
+}
+
+private struct TurnDurationLabel: View {
+    let startedAt: Date
+    @Bindable var clock: VisibleSurfaceClock
+
+    var body: some View {
+        Label(GaugeFormatting.duration(clock.now.timeIntervalSince(startedAt)), systemImage: "timer")
+            .monospacedDigit()
+    }
+}
+
+private struct RefreshAllowancesButton: View {
+    @Bindable var state: AppState
+    @Bindable var clock: VisibleSurfaceClock
+
+    var body: some View {
+        Button {
+            Task { await state.refresh() }
+        } label: {
+            Group {
+                if state.isRefreshing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+            .font(.system(size: 14, weight: .medium))
+            .frame(width: 34, height: 34)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(helpText)
+        .accessibilityLabel("Refresh allowances")
+        .accessibilityHint(helpText)
+        .disabled(state.isRefreshing || state.executableURL == nil)
+    }
+
+    private var helpText: String {
+        if state.isRefreshing { return "Refreshing allowances" }
+        guard let fetchedAt = state.accountSnapshot?.fetchedAt else {
+            return "Refresh allowances. No update available yet."
+        }
+        return "Refresh allowances. \(GaugeFormatting.updatedText(since: fetchedAt, now: clock.now))."
+    }
+}
+
 #Preview("Populated") {
-    ContentView(state: DemoData.state())
+    ContentView(state: DemoData.state(), clock: VisibleSurfaceClock())
 }

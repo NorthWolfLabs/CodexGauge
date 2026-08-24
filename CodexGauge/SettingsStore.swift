@@ -61,7 +61,8 @@ final class SettingsStore {
         quotaNotificationsEnabled = defaults.bool(forKey: Key.quotaNotifications)
         attentionNotificationsEnabled = defaults.bool(forKey: Key.attentionNotifications)
         let thresholds = defaults.array(forKey: Key.notificationThresholds) as? [Int]
-        notificationThresholds = thresholds?.isEmpty == false ? thresholds! : [20, 10, 5]
+        let configuredThresholds = thresholds?.isEmpty == false ? thresholds! : [20, 10, 5]
+        notificationThresholds = Array(Set(configuredThresholds.map { max(1, min(99, $0)) })).sorted(by: >)
         launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 

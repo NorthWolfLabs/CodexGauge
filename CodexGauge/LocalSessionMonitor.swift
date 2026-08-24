@@ -51,6 +51,9 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     private var filesystemRefreshTask: Task<Void, Never>?
     private var pendingFilesystemPaths = Set<String>()
     private var processingCursor = 0
+    private var maintenanceTick = 0
+    private var snapshotPolicy = SemanticSnapshotPolicy<[ConversationTelemetry]>()
+    private var requiresRescan = false
     private var started = false
 
     private static let maximumTrackedSessions = 200
@@ -86,6 +89,9 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         continuation?.finish()
         continuation = nil
         sessions.removeAll()
+        snapshotPolicy.reset()
+        maintenanceTick = 0
+        requiresRescan = false
         started = false
     }
 
@@ -94,12 +100,14 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         started = true
         loadTitles()
         probeLocks()
+        let discoverySignpost = PerformanceSignposts.begin("Session discovery")
         discoverRecentSessions()
         processTrackedSessions()
+        PerformanceSignposts.end("Session discovery", discoverySignpost)
         emitSnapshot()
 
-        watcher = RecursiveFSEventsWatcher(paths: [sessionsURL.path, locksURL.path]) { [weak self] paths in
-            Task { await self?.queueFilesystemChanges(paths) }
+        watcher = RecursiveFSEventsWatcher(paths: [sessionsURL.path, locksURL.path]) { [weak self] paths, rescan in
+            Task { await self?.queueFilesystemChanges(paths, requiresRescan: rescan) }
         }
         watcher?.start()
 
@@ -113,15 +121,20 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     }
 
     private func performMaintenance() {
+        maintenanceTick += 1
         loadTitles()
         probeLocks()
-        processTrackedSessions()
+        processLockedSessions()
+        if maintenanceTick.isMultiple(of: 20) {
+            processTrackedSessions(maximumFiles: 20)
+        }
         pruneOldSessions()
         emitSnapshot()
     }
 
-    private func queueFilesystemChanges(_ paths: [String]) {
+    private func queueFilesystemChanges(_ paths: [String], requiresRescan: Bool) {
         pendingFilesystemPaths.formUnion(paths.prefix(512))
+        self.requiresRescan = self.requiresRescan || requiresRescan
         guard filesystemRefreshTask == nil else { return }
         filesystemRefreshTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(100))
@@ -134,17 +147,18 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         filesystemRefreshTask = nil
         let paths = Array(pendingFilesystemPaths)
         pendingFilesystemPaths.removeAll(keepingCapacity: true)
-        var shouldDiscover = false
+        let shouldDiscover = requiresRescan
+        requiresRescan = false
+        var changedFiles: [String] = []
         for path in paths {
             if path.hasSuffix(".jsonl") {
                 track(path: path)
-            } else if path.hasPrefix(sessionsURL.path) {
-                shouldDiscover = true
+                changedFiles.append(path)
             }
         }
         if shouldDiscover { discoverRecentSessions() }
         probeLocks()
-        processTrackedSessions()
+        process(paths: changedFiles)
         emitSnapshot()
     }
 
@@ -196,6 +210,10 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     }
 
     private func processTrackedSessions() {
+        processTrackedSessions(maximumFiles: Self.maximumFilesPerPass)
+    }
+
+    private func processTrackedSessions(maximumFiles: Int) {
         let paths = sessions.keys.sorted()
         guard !paths.isEmpty else {
             processingCursor = 0
@@ -204,7 +222,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         processingCursor %= paths.count
         var processedFiles = 0
         var processedBytes = 0
-        while processedFiles < min(Self.maximumFilesPerPass, paths.count),
+        while processedFiles < min(maximumFiles, paths.count),
               processedBytes < Self.maximumBytesPerPass {
             let path = paths[processingCursor]
             let remaining = Self.maximumBytesPerPass - processedBytes
@@ -212,6 +230,24 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
             processedBytes += process(path: path, byteBudget: budget)
             processedFiles += 1
             processingCursor = (processingCursor + 1) % paths.count
+        }
+    }
+
+    private func processLockedSessions() {
+        let paths = sessions.values
+            .filter { lockedIDs.contains($0.id) }
+            .map(\.path)
+        process(paths: Array(paths.prefix(20)))
+    }
+
+    private func process(paths: [String]) {
+        guard !paths.isEmpty else { return }
+        let signpost = PerformanceSignposts.begin("Session parsing")
+        defer { PerformanceSignposts.end("Session parsing", signpost) }
+        var remaining = Self.maximumBytesPerPass
+        for path in paths.prefix(Self.maximumFilesPerPass) where remaining > 0 {
+            let bytes = process(path: path, byteBudget: min(Self.maximumBytesPerFile, remaining))
+            remaining -= bytes
         }
     }
 
@@ -512,7 +548,10 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         }
         let live = telemetry.filter { $0.isLive }
         let recent = telemetry.filter { !$0.isLive }
-        continuation?.yield(live + Array(recent.prefix(200)))
+        let snapshot = live + Array(recent.prefix(200))
+        guard snapshotPolicy.shouldPublish(snapshot) else { return }
+        PerformanceSignposts.event("Session snapshot published")
+        continuation?.yield(snapshot)
     }
 
     private func effectiveState(for session: Session, now: Date) -> ConversationState {
@@ -736,8 +775,8 @@ private struct ThreadTitleRecord: Decodable {
 
 private final class RecursiveFSEventsWatcher: @unchecked Sendable {
     private final class CallbackBox: @unchecked Sendable {
-        let callback: @Sendable ([String]) -> Void
-        init(callback: @escaping @Sendable ([String]) -> Void) { self.callback = callback }
+        let callback: @Sendable ([String], Bool) -> Void
+        init(callback: @escaping @Sendable ([String], Bool) -> Void) { self.callback = callback }
     }
 
     private let paths: [String]
@@ -745,7 +784,7 @@ private final class RecursiveFSEventsWatcher: @unchecked Sendable {
     private var stream: FSEventStreamRef?
     private let queue = DispatchQueue(label: "com.northwolflabs.CodexGauge.fsevents", qos: .utility)
 
-    init(paths: [String], callback: @escaping @Sendable ([String]) -> Void) {
+    init(paths: [String], callback: @escaping @Sendable ([String], Bool) -> Void) {
         self.paths = paths
         box = CallbackBox(callback: callback)
     }
@@ -759,11 +798,13 @@ private final class RecursiveFSEventsWatcher: @unchecked Sendable {
             release: nil,
             copyDescription: nil
         )
-        let callback: FSEventStreamCallback = { _, info, count, eventPaths, _, _ in
+        let callback: FSEventStreamCallback = { _, info, count, eventPaths, eventFlags, _ in
             guard let info else { return }
             let box = Unmanaged<CallbackBox>.fromOpaque(info).takeUnretainedValue()
             let paths = unsafeBitCast(eventPaths, to: NSArray.self) as? [String] ?? []
-            if count > 0 { box.callback(paths) }
+            let flags = (0..<count).map { eventFlags[$0] }
+            let requiresRescan = FSEventRescanPolicy.requiresRescan(flags)
+            if count > 0 { box.callback(paths, requiresRescan) }
         }
         stream = FSEventStreamCreate(
             nil,

@@ -102,6 +102,11 @@ final class CodexGaugeUITests: XCTestCase {
 
         dashboard.staticTexts["Activity"].firstMatch.click()
         XCTAssertTrue(dashboard.staticTexts["Token activity"].waitForExistence(timeout: 3))
+        for range in ["Today", "30 Days", "7 Days", "1 Year", "7 Days"] {
+            let control = dashboard.descendants(matching: .any)[range].firstMatch
+            XCTAssertTrue(control.waitForExistence(timeout: 2))
+            control.click()
+        }
         capture("04-dashboard-activity")
 
         dashboard.typeKey("/", modifierFlags: [.command, .shift])
@@ -135,6 +140,63 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(reopenedHelp.waitForExistence(timeout: 3), "Help should open outside Settings")
         reopenedHelp.staticTexts["Privacy"].firstMatch.click()
         capture("08-help-privacy")
+    }
+
+    @MainActor
+    func testTransientPopoverStateResetsAfterClosing() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestDemo"]
+        app.launch()
+
+        let statusItem = app.statusItems["codexgauge.statusItem"]
+        XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+        statusItem.click()
+
+        var liveTask = app.descendants(matching: .any)["live-conversation-disclosure"].firstMatch
+        let activity = app.descendants(matching: .any)["popover-activity-disclosure"].firstMatch
+        XCTAssertTrue(liveTask.waitForExistence(timeout: 3))
+        XCTAssertTrue(activity.waitForExistence(timeout: 3))
+        liveTask.click()
+        activity.click()
+        XCTAssertEqual(liveTask.value as? String, "Expanded")
+        XCTAssertEqual(activity.value as? String, "Expanded")
+
+        statusItem.click()
+        XCTAssertFalse(app.descendants(matching: .any)["gauge-panel"].firstMatch.waitForExistence(timeout: 1))
+        statusItem.click()
+
+        liveTask = app.descendants(matching: .any)["live-conversation-disclosure"].firstMatch
+        let reopenedActivity = app.descendants(matching: .any)["popover-activity-disclosure"].firstMatch
+        XCTAssertTrue(liveTask.waitForExistence(timeout: 3))
+        XCTAssertEqual(liveTask.value as? String, "Collapsed")
+        XCTAssertEqual(reopenedActivity.value as? String, "Collapsed")
+
+        XCTAssertEqual(reopenedActivity.elementType, .button)
+        XCTAssertTrue(reopenedActivity.isEnabled, "Disclosures should expose native, focusable button semantics")
+    }
+
+    @MainActor
+    func testAllowanceThresholdValidation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestDemo", "-uiTestInvalidThresholds"]
+        app.launch()
+        let statusItem = app.statusItems["codexgauge.statusItem"]
+        XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+        statusItem.rightClick()
+        statusItem.menuItems["Settings…"].click()
+        let settingsWindow = app.windows["General"]
+        XCTAssertTrue(settingsWindow.waitForExistence(timeout: 3))
+        settingsWindow.buttons["Notifications"].click()
+        let notificationsWindow = app.windows["Notifications"]
+        XCTAssertTrue(notificationsWindow.waitForExistence(timeout: 3))
+
+        let threshold = notificationsWindow.textFields["allowance-threshold-field"].firstMatch
+        XCTAssertTrue(threshold.waitForExistence(timeout: 2))
+        let thresholdValues = notificationsWindow.textFields
+            .matching(identifier: "allowance-threshold-field")
+            .allElementsBoundByIndex
+            .compactMap { $0.value as? String }
+        XCTAssertEqual(thresholdValues, ["99", "1"])
     }
 
     @MainActor
@@ -198,6 +260,29 @@ final class CodexGaugeUITests: XCTestCase {
         settingsWindow.buttons["Notifications"].click()
         XCTAssertTrue(app.windows["Notifications"].staticTexts["Not allowed"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.buttons["Open Notification Settings"].exists)
+    }
+
+    @MainActor
+    func testZeroAndOversizedVisualizationsRemainPresentable() throws {
+        for arguments in [["-uiTestZeroActivity"], ["-uiTestOversizedValues"]] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-uiTestDemo"] + arguments
+            app.launch()
+            let statusItem = app.statusItems["codexgauge.statusItem"]
+            XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+            statusItem.click()
+            let panel = app.descendants(matching: .any)["gauge-panel"].firstMatch
+            XCTAssertTrue(panel.waitForExistence(timeout: 3))
+            let liveTask = panel.descendants(matching: .any)["live-conversation-disclosure"].firstMatch
+            XCTAssertTrue(liveTask.waitForExistence(timeout: 3))
+            liveTask.click()
+            let activity = panel.descendants(matching: .any)["popover-activity-disclosure"].firstMatch
+            XCTAssertTrue(activity.waitForExistence(timeout: 3))
+            activity.click()
+            XCTAssertTrue(panel.exists)
+            XCTAssertTrue(app.state == .runningForeground || app.state == .runningBackground)
+            app.terminate()
+        }
     }
 
     @MainActor

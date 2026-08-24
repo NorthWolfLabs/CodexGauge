@@ -88,10 +88,10 @@ jobs:
             -destination 'generic/platform=macOS' \
             -archivePath "$RUNNER_TEMP/CodexGauge-unsigned.xcarchive" \
             ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$log_file"
-          log show --start "$started" --style compact \
+          /usr/bin/log show --start "$started" --style compact \
             --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
             > "$RUNNER_TEMP/runtime-${{ matrix.macos }}.log" || true
-          if grep -Ei 'Invalid frame dimension|Custom UnitPoint values are not supported|main actor-isolated.*nonisolated|main-thread XCTest|accessibility.*failed|warning:.*(Sendable|actor-isolated|concurr)' \
+          if grep -Ei 'com\.apple\.runtime-issues|Invalid frame dimension|negative or non-finite|Custom UnitPoint values are not supported|Charts:|Unable to simultaneously satisfy constraints|Publishing changes from within view updates|AttributeGraph: cycle|main thread as it may lead to UI unresponsiveness|main actor-isolated.*nonisolated|main-thread XCTest|accessibility.*failed|warning:.*(Sendable|actor-isolated|concurr)' \
             "$log_file" "$RUNNER_TEMP/runtime-${{ matrix.macos }}.log"; then
             echo "Release-blocking warning or runtime fault detected." >&2
             exit 1

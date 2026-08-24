@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "sampleSeconds": 300,
+  "warmupSeconds": 60,
+  "scenarios": {
+    "idle": { "averageCPU": 1, "p95CPU": 2, "footprintMB": 100, "growthMB": 5 },
+    "popover": { "averageCPU": 3, "p95CPU": 6, "footprintMB": 125, "growthMB": 8 },
+    "popover-expanded": { "averageCPU": 6, "p95CPU": 12, "footprintMB": 150, "growthMB": 10 },
+    "dashboard-activity": { "averageCPU": 8, "p95CPU": 15, "footprintMB": 180, "growthMB": 12 },
+    "recovery": { "averageCPU": 1, "p95CPU": 2, "footprintMB": 100, "growthMB": 5 }
+  }
+}

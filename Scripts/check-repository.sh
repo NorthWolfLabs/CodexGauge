@@ -7,7 +7,9 @@ cd "$project_root"
 required=(
   LICENSE NOTICE README.md CHANGELOG.md SECURITY.md CONTRIBUTING.md
   CODE_OF_CONDUCT.md SUPPORT.md PRIVACY.md .xcode-version
-  Scripts/release.sh Scripts/check-toolchain.sh
+  Performance/Budgets.json Performance/README.md
+  Scripts/release.sh Scripts/check-toolchain.sh Scripts/performance-check.sh
+  Scripts/performance-probe.swift
   CodexGauge.xcodeproj/xcshareddata/xcschemes/CodexGauge.xcscheme
 )
 for required_file in "${required[@]}"; do
@@ -54,5 +56,6 @@ if grep -REn '(DEVELOPER_ID_P12_BASE64|DEVELOPER_ID_P12_PASSWORD|ASC_API_KEY_P8_
   exit 1
 fi
 
-zsh -n Scripts/release.sh Scripts/check-toolchain.sh Scripts/check-repository.sh
+jq -e '.sampleSeconds == 300 and .warmupSeconds == 60 and (.scenarios | length == 5)' Performance/Budgets.json >/dev/null
+zsh -n Scripts/release.sh Scripts/check-toolchain.sh Scripts/check-repository.sh Scripts/performance-check.sh
 print "Repository checks passed."

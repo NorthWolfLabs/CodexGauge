@@ -20,6 +20,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     )
     private var keyMonitor: Any?
     private var expandedDisclosureCount = 0
+    private var popoverClock: VisibleSurfaceClock?
 
     init(state: AppState) {
         self.state = state
@@ -38,23 +39,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         popover.contentSize = NSSize(width: 390, height: preferredPopoverHeight)
-        popover.contentViewController = NSHostingController(
-            rootView: ContentView(
-                state: state,
-                onShowDashboard: { [weak self] in self?.dashboardWindow.show() },
-                onShowSettings: { [weak self] in self?.settingsWindow.show() },
-                onShowHelp: { [weak self] in self?.helpWindow.show() },
-                onShowMenu: { [weak self] in self?.showPopoverMenu() },
-                onDisclosureExpansionChanged: { [weak self] isExpanded in
-                    guard let self else { return }
-                    self.expandedDisclosureCount = max(0, self.expandedDisclosureCount + (isExpanded ? 1 : -1))
-                    self.updatePopoverSize()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak self] in
-                        self?.updatePopoverSize()
-                    }
-                }
-            )
-        )
         popover.delegate = self
 
         updateStatusItem()
@@ -72,16 +56,25 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     func popoverDidClose(_ notification: Notification) {
+        popoverClock?.stop()
+        popoverClock = nil
+        popover.contentViewController = nil
         expandedDisclosureCount = 0
         updatePopoverSize()
+        RuntimeMemory.scheduleUnusedPageRelease()
     }
 
     private func togglePopover(from button: NSStatusBarButton) {
         if popover.isShown {
             popover.performClose(button)
         } else {
+            let presentationStartedAt = ProcessInfo.processInfo.systemUptime
+            installPopoverContent()
+            popoverClock?.start()
+            updatePopoverSize()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
+            PerformanceSignposts.recordPresentation("popover", startedAt: presentationStartedAt)
         }
     }
 
@@ -153,6 +146,63 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         NSApplication.shared.terminate(nil)
     }
 
+    func runPerformanceScenario(_ scenario: String) async {
+        guard let button = statusItem.button else {
+            PerformanceSignposts.recordReady(scenario)
+            return
+        }
+        switch scenario {
+        case "popover", "popover-expanded", "stress":
+            await exercisePopoverPresentation(from: button, leaveOpen: true)
+        case "dashboard", "dashboard-activity":
+            await exerciseDashboardPresentation(leaveOpen: true)
+        case "recovery":
+            await exercisePopoverPresentation(from: button, leaveOpen: false)
+        default:
+            break
+        }
+        PerformanceSignposts.recordReady(scenario)
+    }
+
+    private func exercisePopoverPresentation(from button: NSStatusBarButton, leaveOpen: Bool) async {
+        var completedPresentations = 0
+        var attempts = 0
+        while completedPresentations < 20, attempts < 60 {
+            attempts += 1
+            if popover.isShown {
+                popover.close()
+                await waitForPopoverToClose()
+            }
+            guard !popover.isShown else { continue }
+
+            togglePopover(from: button)
+            completedPresentations += 1
+            try? await Task.sleep(for: .milliseconds(200))
+            popover.close()
+            await waitForPopoverToClose()
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        if leaveOpen, !popover.isShown { togglePopover(from: button) }
+    }
+
+    private func waitForPopoverToClose() async {
+        for _ in 0..<80 where popover.isShown {
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+    }
+
+    private func exerciseDashboardPresentation(leaveOpen: Bool) async {
+        for _ in 0..<20 {
+            dashboardWindow.show()
+            try? await Task.sleep(for: .milliseconds(150))
+            dashboardWindow.close()
+            for _ in 0..<20 where dashboardWindow.window != nil {
+                try? await Task.sleep(for: .milliseconds(25))
+            }
+        }
+        if leaveOpen { dashboardWindow.show() }
+    }
+
     private func installMainMenu() {
         let mainMenu = NSMenu(title: "Main Menu")
 
@@ -219,14 +269,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             _ = state.menuBarSymbol
             _ = state.menuBarAccessibilityLabel
             _ = state.isRefreshing
-            _ = state.conversations
-            _ = state.hasLoadedConversations
-            _ = state.accountSnapshot?.buckets
-            _ = state.accountSnapshot?.activity
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.updateStatusItem()
-                self?.updatePopoverSize()
                 self?.observeState()
             }
         }
@@ -269,5 +314,33 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         let target = NSSize(width: 390, height: preferredPopoverHeight)
         guard popover.contentSize != target else { return }
         popover.contentSize = target
+    }
+
+    private func installPopoverContent() {
+        guard popover.contentViewController == nil else { return }
+        let signpost = PerformanceSignposts.begin("Popover construction")
+        defer { PerformanceSignposts.end("Popover construction", signpost) }
+        let clock = VisibleSurfaceClock()
+        popoverClock = clock
+        popover.contentViewController = NSHostingController(
+            rootView: ContentView(
+                state: state,
+                clock: clock,
+                onShowDashboard: { [weak self] in self?.dashboardWindow.show() },
+                onShowSettings: { [weak self] in self?.settingsWindow.show() },
+                onShowHelp: { [weak self] in self?.helpWindow.show() },
+                onShowMenu: { [weak self] in self?.showPopoverMenu() },
+                onContentSizeInvalidated: { [weak self] in self?.updatePopoverSize() },
+                onDisclosureExpansionChanged: { [weak self] isExpanded in
+                    guard let self else { return }
+                    self.expandedDisclosureCount = max(0, self.expandedDisclosureCount + (isExpanded ? 1 : -1))
+                    self.updatePopoverSize()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak self] in
+                        guard self?.popover.isShown == true else { return }
+                        self?.updatePopoverSize()
+                    }
+                }
+            )
+        )
     }
 }

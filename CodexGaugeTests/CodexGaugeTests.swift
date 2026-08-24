@@ -1,4 +1,5 @@
 import Foundation
+import CoreServices
 import Testing
 @testable import CodexGauge
 
@@ -14,6 +15,18 @@ struct CodexGaugeTests {
 
         #expect(settings.notificationThresholds == [25, 15, 5, 2])
         #expect(defaults.array(forKey: "notificationThresholds") as? [Int] == [25, 15, 5, 2])
+    }
+
+    @MainActor
+    @Test func persistedAllowanceThresholdsAreClampedAndDeduplicated() {
+        let suite = "CodexGaugeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set([0, 5, 5, 100, -20], forKey: "notificationThresholds")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.notificationThresholds == [99, 5, 1])
     }
 
     @Test func remainingPercentageIsClamped() {
@@ -45,6 +58,103 @@ struct CodexGaugeTests {
         #expect(RefreshBackoff.delay(forFailureCount: 1) == 2)
         #expect(RefreshBackoff.delay(forFailureCount: 4) == 16)
         #expect(RefreshBackoff.delay(forFailureCount: 20) == 120)
+    }
+
+    @Test func snapshotWritesAreCoalescedExceptForResetChanges() {
+        var policy = SnapshotPersistencePolicy()
+        let start = Date(timeIntervalSince1970: 2_000_000_000)
+
+        let initial = policy.shouldPersist(at: start, resetSignature: "primary|reset-a", remainingPercentages: ["primary": 80])
+        let immediateDuplicate = policy.shouldPersist(at: start.addingTimeInterval(1), resetSignature: "primary|reset-a", remainingPercentages: ["primary": 79])
+        let resetChange = policy.shouldPersist(at: start.addingTimeInterval(2), resetSignature: "primary|reset-b", remainingPercentages: ["primary": 79])
+        let materialAllowanceChange = policy.shouldPersist(at: start.addingTimeInterval(3), resetSignature: "primary|reset-b", remainingPercentages: ["primary": 73])
+        let earlyDuplicate = policy.shouldPersist(at: start.addingTimeInterval(59), resetSignature: "primary|reset-b", remainingPercentages: ["primary": 72])
+        let elapsed = policy.shouldPersist(at: start.addingTimeInterval(63), resetSignature: "primary|reset-b", remainingPercentages: ["primary": 72])
+        #expect(initial)
+        #expect(!immediateDuplicate)
+        #expect(resetChange)
+        #expect(materialAllowanceChange)
+        #expect(!earlyDuplicate)
+        #expect(elapsed)
+    }
+
+    @Test func droppedFSEventsRequireAFullDiscoveryPass() {
+        #expect(!FSEventRescanPolicy.requiresRescan([0, UInt32(kFSEventStreamEventFlagItemModified)]))
+        #expect(FSEventRescanPolicy.requiresRescan([UInt32(kFSEventStreamEventFlagMustScanSubDirs)]))
+        #expect(FSEventRescanPolicy.requiresRescan([UInt32(kFSEventStreamEventFlagUserDropped)]))
+        #expect(FSEventRescanPolicy.requiresRescan([UInt32(kFSEventStreamEventFlagKernelDropped)]))
+    }
+
+    @Test func semanticallyIdenticalSnapshotsAreNotRepublished() {
+        var policy = SemanticSnapshotPolicy<[Int]>()
+        let initial = policy.shouldPublish([1, 2, 3])
+        let duplicate = policy.shouldPublish([1, 2, 3])
+        let changed = policy.shouldPublish([1, 2, 4])
+        policy.reset()
+        let afterReset = policy.shouldPublish([1, 2, 4])
+        #expect(initial)
+        #expect(!duplicate)
+        #expect(changed)
+        #expect(afterReset)
+    }
+
+    @Test func quotaNotificationEvaluationOnlyRunsAtThresholdOrResetBoundaries() {
+        func snapshot(remaining: Int, reset: Date) -> AccountSnapshot {
+            AccountSnapshot(
+                accountType: "chatgpt",
+                plan: "pro",
+                buckets: [
+                    QuotaBucket(
+                        id: "codex",
+                        name: "Codex",
+                        plan: "pro",
+                        windows: [
+                            QuotaWindow(
+                                id: "primary",
+                                kind: "Primary",
+                                usedPercent: 100 - remaining,
+                                durationMinutes: 300,
+                                resetsAt: reset
+                            )
+                        ],
+                        credits: nil,
+                        spendControl: nil,
+                        spendControlReached: nil,
+                        reachedReason: nil
+                    )
+                ],
+                earnedResetCount: nil,
+                activity: .empty,
+                fetchedAt: reset.addingTimeInterval(-60)
+            )
+        }
+
+        let reset = Date(timeIntervalSince1970: 2_000_000_000)
+        var policy = QuotaNotificationEvaluationPolicy()
+        let initialEvaluation = policy.shouldEvaluate(snapshot(remaining: 30, reset: reset), thresholds: [20, 10, 5])
+        let sameBandEvaluation = policy.shouldEvaluate(snapshot(remaining: 25, reset: reset), thresholds: [20, 10, 5])
+        let thresholdEvaluation = policy.shouldEvaluate(snapshot(remaining: 19, reset: reset), thresholds: [20, 10, 5])
+        let repeatedBandEvaluation = policy.shouldEvaluate(snapshot(remaining: 18, reset: reset), thresholds: [20, 10, 5])
+        let resetEvaluation = policy.shouldEvaluate(
+            snapshot(remaining: 18, reset: reset.addingTimeInterval(300)),
+            thresholds: [20, 10, 5]
+        )
+
+        #expect(initialEvaluation)
+        #expect(!sameBandEvaluation)
+        #expect(thresholdEvaluation)
+        #expect(!repeatedBandEvaluation)
+        #expect(resetEvaluation)
+    }
+
+    @MainActor
+    @Test func visibleSurfaceClockStopsWithItsSurface() {
+        let clock = VisibleSurfaceClock(now: Date(timeIntervalSince1970: 0))
+        #expect(!clock.isRunning)
+        clock.start()
+        #expect(clock.isRunning)
+        clock.stop()
+        #expect(!clock.isRunning)
     }
 
     @Test func canonicalCodexBucketSelectsItsMostConstrainedWindow() {

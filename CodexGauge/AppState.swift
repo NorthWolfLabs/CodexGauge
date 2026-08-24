@@ -14,6 +14,7 @@ enum RefreshBackoff {
 final class AppState {
     let settings: SettingsStore
     private let locator: any CodexExecutableLocating
+    private let executableValidator: any CodexExecutableValidating
     private let cache: SnapshotCache
     private let notifications: any NotificationScheduling
     private let clock: any ClockProviding
@@ -28,6 +29,8 @@ final class AppState {
     private var failureCount = 0
     private var accountIdentity: AccountIdentity?
     private var accountActivity: AccountActivity = .empty
+    private var snapshotPersistencePolicy = SnapshotPersistencePolicy()
+    private var quotaNotificationEvaluationPolicy = QuotaNotificationEvaluationPolicy()
 
     var accountSnapshot: AccountSnapshot?
     var conversations: [ConversationTelemetry] = []
@@ -42,14 +45,16 @@ final class AppState {
 
     init(
         settings: SettingsStore = SettingsStore(),
-        locator: any CodexExecutableLocating = DefaultCodexExecutableLocator(),
+        locator: (any CodexExecutableLocating)? = nil,
+        executableValidator: any CodexExecutableValidating = DefaultCodexExecutableValidator(),
         cache: SnapshotCache = SnapshotCache(),
         notifications: (any NotificationScheduling)? = nil,
         clock: any ClockProviding = SystemClock(),
         startImmediately: Bool = true
     ) {
         self.settings = settings
-        self.locator = locator
+        self.executableValidator = executableValidator
+        self.locator = locator ?? DefaultCodexExecutableLocator(validator: executableValidator)
         self.cache = cache
         self.clock = clock
         self.notifications = notifications ?? UserNotificationScheduler(clock: clock)
@@ -136,8 +141,12 @@ final class AppState {
             freshness = .fresh
             errorMessage = nil
             failureCount = 0
-            await cache.save(snapshot)
-            if settings.quotaNotificationsEnabled {
+            await persistSnapshotIfNeeded(snapshot)
+            if settings.quotaNotificationsEnabled,
+               quotaNotificationEvaluationPolicy.shouldEvaluate(
+                   snapshot,
+                   thresholds: settings.notificationThresholds
+               ) {
                 await notifications.evaluate(snapshot: snapshot, thresholds: settings.notificationThresholds)
             }
         } catch {
@@ -165,12 +174,17 @@ final class AppState {
     func validateAndUseExecutable(_ url: URL) async -> Bool {
         let trustedURL: URL
         do {
-            trustedURL = try CodexExecutableTrust.validate(url)
+            trustedURL = try await executableValidator.validate(url)
         } catch {
             executableValidationMessage = (error as? LocalizedError)?.errorDescription ?? "Choose a Codex helper signed by OpenAI."
             return false
         }
-        let candidate = CodexAppServerClient(executableURL: trustedURL, codexHomeURL: settings.codexHomeURL, clock: clock)
+        let candidate = CodexAppServerClient(
+            executableURL: trustedURL,
+            codexHomeURL: settings.codexHomeURL,
+            clock: clock,
+            executableValidator: executableValidator
+        )
         do {
             try await candidate.validateConnection()
             await candidate.stop()
@@ -203,7 +217,7 @@ final class AppState {
     }
 
     private func connect() async {
-        guard let executable = locator.locate(override: settings.executableOverride) else {
+        guard let executable = await locator.locate(override: settings.executableOverride) else {
             executableURL = nil
             hasLoadedConversations = true
             freshness = accountSnapshot == nil ? .unavailable : .stale
@@ -212,7 +226,12 @@ final class AppState {
         }
         executableURL = executable
         hasLoadedConversations = false
-        let account = CodexAppServerClient(executableURL: executable, codexHomeURL: settings.codexHomeURL, clock: clock)
+        let account = CodexAppServerClient(
+            executableURL: executable,
+            codexHomeURL: settings.codexHomeURL,
+            clock: clock,
+            executableValidator: executableValidator
+        )
         let sessions = LocalSessionMonitor(codexHomeURL: settings.codexHomeURL, clock: clock)
         accountProvider = account
         sessionProvider = sessions
@@ -250,11 +269,15 @@ final class AppState {
             let stream = await sessions.snapshots()
             for await telemetry in stream {
                 guard !Task.isCancelled else { break }
-                await MainActor.run {
-                    self?.conversations = telemetry
-                    self?.hasLoadedConversations = true
+                let changed = await MainActor.run {
+                    guard let self else { return false }
+                    let changed = self.conversations != telemetry
+                    if changed { self.conversations = telemetry }
+                    self.hasLoadedConversations = true
+                    return changed
                 }
-                if await MainActor.run(body: { self?.settings.attentionNotificationsEnabled == true }) {
+                if changed,
+                   await MainActor.run(body: { self?.settings.attentionNotificationsEnabled == true }) {
                     await self?.notifications.evaluate(conversations: telemetry)
                 }
             }
@@ -303,7 +326,7 @@ final class AppState {
             if var snapshot = accountSnapshot {
                 snapshot.activity = activity
                 accountSnapshot = snapshot
-                await cache.save(snapshot)
+                await persistSnapshotIfNeeded(snapshot)
             }
         } catch {
             // Aggregate activity is supplemental; retain the last successful value.
@@ -329,4 +352,20 @@ final class AppState {
         conversations = []
         hasLoadedConversations = false
     }
+
+    private func persistSnapshotIfNeeded(_ snapshot: AccountSnapshot) async {
+        let resetSignature = snapshot.buckets.flatMap { bucket in
+            bucket.windows.map { "\(bucket.id)|\($0.id)|\($0.resetsAt?.timeIntervalSince1970 ?? -1)" }
+        }.joined(separator: ";")
+        let remainingPercentages = Dictionary(uniqueKeysWithValues: snapshot.buckets.flatMap { bucket in
+            bucket.windows.map { ("\(bucket.id)|\($0.id)", $0.remainingPercent) }
+        })
+        guard snapshotPersistencePolicy.shouldPersist(
+            at: clock.now,
+            resetSignature: resetSignature,
+            remainingPercentages: remainingPercentages
+        ) else { return }
+        await cache.save(snapshot)
+    }
+
 }

@@ -7,6 +7,7 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - Restored near-live local task updates with a bounded one-second fallback for known live tasks and immediate tail catch-up for large rollouts.
 - Made live rates easier to follow with calm integer-only numeric transitions and a continuously flowing, noninteractive Dashboard graph.
 - Replaced cliff-edge token windows with time-weighted rates that decay every second during tool use and other pauses, without reporting new token usage.
+- Stabilized Activity range selection, made Today summaries range-appropriate, corrected short-range and popover chart geometry, and eliminated an unsupported Charts axis-label configuration.
 
 ## [1.0.0] - 2026-08-24
 

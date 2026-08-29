@@ -241,6 +241,10 @@ struct ContentView: View {
         let peak = week.max { $0.tokens < $1.tokens }
         let chartMaximum = max(Int64(1), week.map(\.tokens).max() ?? 1)
         let chartUpperBound = max(1, Double(chartMaximum) * 1.12)
+        let chartCategories = week.map(activityDayCategory)
+        let chartDatesByCategory = Dictionary(
+            uniqueKeysWithValues: week.map { (activityDayCategory($0), $0.date) }
+        )
 
         return FullWidthDisclosure(
             identifier: "popover-activity-disclosure",
@@ -249,17 +253,25 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if !week.isEmpty {
                     Chart(week) { day in
-                        BarMark(x: .value("Day", day.date, unit: .day), y: .value("Tokens", day.tokens))
-                            .foregroundStyle(.tint)
-                            .clipShape(RoundedRectangle(cornerRadius: 2))
+                        if day.tokens > 0 {
+                            BarMark(
+                                x: .value("Day", activityDayCategory(day)),
+                                y: .value("Tokens", day.tokens),
+                                width: .fixed(24)
+                            )
+                                .foregroundStyle(.tint)
+                                .clipShape(RoundedRectangle(cornerRadius: 2))
+                        }
                     }
                     .chartXAxis {
-                        AxisMarks(values: .stride(by: .day)) { value in
+                        AxisMarks(values: chartCategories) { value in
                             AxisTick().foregroundStyle(.clear)
                             AxisGridLine().foregroundStyle(.clear)
-                            AxisValueLabel(centered: true) {
-                                if let date = value.as(Date.self) {
+                            AxisValueLabel {
+                                if let category = value.as(String.self),
+                                   let date = chartDatesByCategory[category] {
                                     Text(date, format: .dateTime.weekday(.narrow))
+                                        .padding(.top, 6)
                                 }
                             }
                         }
@@ -275,12 +287,8 @@ struct ContentView: View {
                         }
                     }
                     .chartYScale(domain: 0...chartUpperBound)
-                    .chartPlotStyle { plot in
-                        plot
-                            .padding(.horizontal, 4)
-                            .padding(.top, 6)
-                    }
-                    .frame(height: 106)
+                    .frame(height: 112)
+                    .accessibilityIdentifier("popover-activity-chart")
                     .accessibilityChartDescriptor(TokenActivityChartDescriptor(
                         title: "Codex activity for the last seven days",
                         summary: "A daily chart of account-wide token activity.",
@@ -307,6 +315,10 @@ struct ContentView: View {
             }
         }
         .padding(16)
+    }
+
+    private func activityDayCategory(_ usage: DailyUsage) -> String {
+        "\(usage.day.year)-\(usage.day.month)-\(usage.day.day)"
     }
 
     private func activityStat(_ label: String, _ value: String?) -> some View {

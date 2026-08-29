@@ -86,6 +86,11 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(activity.waitForExistence(timeout: 3))
         activity.click()
         XCTAssertEqual(activity.value as? String, "Expanded")
+        Thread.sleep(forTimeInterval: 0.25)
+        let panelScrollView = panel.scrollViews.firstMatch
+        XCTAssertTrue(panelScrollView.exists)
+        panelScrollView.swipeUp()
+        XCTAssertTrue(panel.descendants(matching: .any)["popover-activity-chart"].firstMatch.exists)
         capture("01b-popover-activity")
 
         statusItem.rightClick()
@@ -102,11 +107,33 @@ final class CodexGaugeUITests: XCTestCase {
 
         dashboard.staticTexts["Activity"].firstMatch.click()
         XCTAssertTrue(dashboard.staticTexts["Token activity"].waitForExistence(timeout: 3))
-        for range in ["Today", "30 Days", "7 Days", "1 Year", "7 Days"] {
+        let rangePicker = dashboard.descendants(matching: .any)["activity-range-picker"].firstMatch
+        XCTAssertTrue(rangePicker.waitForExistence(timeout: 2))
+        let pickerSize = rangePicker.frame.size
+        for range in ["Today", "30 Days", "7 Days", "1 Year", "All"] {
             let control = dashboard.descendants(matching: .any)[range].firstMatch
             XCTAssertTrue(control.waitForExistence(timeout: 2))
             control.click()
+            Thread.sleep(forTimeInterval: 0.25)
+            XCTAssertEqual(rangePicker.frame.width, pickerSize.width, accuracy: 1)
+            XCTAssertEqual(rangePicker.frame.height, pickerSize.height, accuracy: 1)
+            if range == "Today" {
+                XCTAssertFalse(dashboard.descendants(matching: .any)["activity-detail-chart"].firstMatch.exists)
+                XCTAssertFalse(dashboard.staticTexts["Active-day average"].exists)
+                XCTAssertFalse(dashboard.staticTexts["Busiest day"].exists)
+                capture("04a-dashboard-activity-today")
+            }
+            if range == "7 Days" {
+                XCTAssertTrue(dashboard.descendants(matching: .any)["activity-detail-chart"].firstMatch.exists)
+                capture("04b-dashboard-activity-week")
+            }
         }
+        dashboard.staticTexts["Tasks"].firstMatch.click()
+        dashboard.staticTexts["Activity"].firstMatch.click()
+        XCTAssertTrue(rangePicker.waitForExistence(timeout: 2))
+        XCTAssertEqual(rangePicker.frame.width, pickerSize.width, accuracy: 1)
+        XCTAssertEqual(rangePicker.frame.height, pickerSize.height, accuracy: 1)
+        dashboard.descendants(matching: .any)["30 Days"].firstMatch.click()
         capture("04-dashboard-activity")
 
         dashboard.typeKey("/", modifierFlags: [.command, .shift])

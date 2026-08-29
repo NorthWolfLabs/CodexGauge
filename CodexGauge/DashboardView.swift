@@ -54,6 +54,29 @@ struct DashboardView: View {
         }
     }
 
+    private struct ActivityRangeControl: View, Equatable {
+        @Binding var selection: ActivityRange
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.selection == rhs.selection
+        }
+
+        var body: some View {
+            Picker("Time range", selection: $selection) {
+                ForEach(ActivityRange.allCases) { range in
+                    Text(range.title).tag(range)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.regular)
+            .frame(width: 360, height: 24)
+            .fixedSize()
+            .transaction { $0.animation = nil }
+            .accessibilityIdentifier("activity-range-picker")
+        }
+    }
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var state: AppState
     @Bindable var clock: VisibleSurfaceClock
@@ -239,11 +262,9 @@ struct DashboardView: View {
                             Text("Account-wide activity by day").font(.subheadline).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Picker("Time range", selection: $activityRange) {
-                            ForEach(ActivityRange.allCases) { range in Text(range.title).tag(range) }
-                        }
-                        .pickerStyle(.segmented).labelsHidden().frame(width: 360)
-                        .accessibilityIdentifier("activity-range-picker")
+                        ActivityRangeControl(selection: $activityRange)
+                            .equatable()
+                            .layoutPriority(1)
                     }
 
                     let usage = filteredUsage(accountActivity.dailyUsage)
@@ -253,22 +274,24 @@ struct DashboardView: View {
                     } else {
                         activitySummary(usage: usage)
 
-                        GroupBox("Tokens by day · \(activityRange.periodName)") {
-                            detailedUsageChart(usage).frame(height: 290).padding(.top, 8)
-                        }
-
-                        if let selected = selectedUsage(in: usage) {
-                            HStack(spacing: 10) {
-                                Image(systemName: "calendar").foregroundStyle(.tint)
-                                Text(selected.date.formatted(date: .complete, time: .omitted))
-                                Spacer()
-                                Text("\(GaugeFormatting.tokenCount(selected.tokens)) tokens").fontWeight(.semibold).monospacedDigit()
+                        if activityRange != .today {
+                            GroupBox("Tokens by day · \(activityRange.periodName)") {
+                                detailedUsageChart(usage).frame(height: 290).padding(.top, 8)
                             }
-                            .padding(12)
-                            .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 9))
-                            .accessibilityElement(children: .combine)
-                        } else {
-                            Text("Select a bar or point to inspect a day.").font(.caption).foregroundStyle(.secondary)
+
+                            if let selected = selectedUsage(in: usage) {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "calendar").foregroundStyle(.tint)
+                                    Text(selected.date.formatted(date: .complete, time: .omitted))
+                                    Spacer()
+                                    Text("\(GaugeFormatting.tokenCount(selected.tokens)) tokens").fontWeight(.semibold).monospacedDigit()
+                                }
+                                .padding(12)
+                                .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 9))
+                                .accessibilityElement(children: .combine)
+                            } else {
+                                Text("Select a bar or point to inspect a day.").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
 
                         Divider()
@@ -371,10 +394,15 @@ struct DashboardView: View {
         let activeDays = usage.filter { $0.tokens > 0 }
         let average = activeDays.isEmpty ? 0 : total / Int64(activeDays.count)
         let peak = usage.max { $0.tokens < $1.tokens }
-        return LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
+        let columns = activityRange == .today
+            ? [GridItem(.flexible(), spacing: 12), GridItem(.flexible())]
+            : [GridItem(.adaptive(minimum: 160), spacing: 12)]
+        return LazyVGrid(columns: columns, spacing: 12) {
             dashboardMetric(activityTotalTitle, GaugeFormatting.tokenCount(total), detail: "tokens", symbol: "sum")
-            dashboardMetric("Active-day average", GaugeFormatting.tokenCount(average), detail: "\(activeDays.count) active day\(activeDays.count == 1 ? "" : "s")", symbol: "divide")
-            dashboardMetric("Busiest day", peak.map { GaugeFormatting.tokenCount($0.tokens) } ?? "—", detail: busiestDate(peak?.date), symbol: "chart.bar.fill")
+            if activityRange != .today {
+                dashboardMetric("Active-day average", GaugeFormatting.tokenCount(average), detail: "\(activeDays.count) active day\(activeDays.count == 1 ? "" : "s")", symbol: "divide")
+                dashboardMetric("Busiest day", peak.map { GaugeFormatting.tokenCount($0.tokens) } ?? "—", detail: busiestDate(peak?.date), symbol: "chart.bar.fill")
+            }
             if activityRange != .all {
                 let comparison = periodComparison(currentTotal: total)
                 dashboardMetric("Change", comparison.value, detail: comparison.detail, symbol: comparison.symbol)
@@ -384,13 +412,18 @@ struct DashboardView: View {
 
     private func detailedUsageChart(_ usage: [DailyUsage]) -> some View {
         let maximumTokens = min(Int64(1_000_000_000_000_000), max(Int64(1), usage.map(\.tokens).max() ?? 1))
+        let barWidth: MarkDimension = .fixed(usage.count == 1 ? 64 : usage.count <= 7 ? 42 : 12)
         return Chart {
             ForEach(usage) { day in
                 if usage.count > 90 {
                     LineMark(x: .value("Day", day.date), y: .value("Tokens", min(day.tokens, maximumTokens)))
                         .foregroundStyle(.tint).interpolationMethod(.monotone)
-                } else {
-                    BarMark(x: .value("Day", day.date, unit: .day), y: .value("Tokens", min(day.tokens, maximumTokens)))
+                } else if day.tokens > 0 {
+                    BarMark(
+                        x: .value("Day", day.date),
+                        y: .value("Tokens", min(day.tokens, maximumTokens)),
+                        width: barWidth
+                    )
                         .foregroundStyle(.tint).cornerRadius(3)
                 }
             }
@@ -398,7 +431,14 @@ struct DashboardView: View {
                 RuleMark(x: .value("Selected day", selected.date))
                     .foregroundStyle(.secondary)
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3]))
-                    .annotation(position: .top, alignment: .leading) {
+                    .annotation(
+                        position: .top,
+                        alignment: activityAnnotationAlignment(for: selected, in: usage),
+                        overflowResolution: AnnotationOverflowResolution(
+                            x: .disabled,
+                            y: .fit(to: .chart)
+                        )
+                    ) {
                         Text(GaugeFormatting.tokenCount(selected.tokens))
                             .font(.caption.weight(.medium).monospacedDigit())
                             .padding(.horizontal, 6).padding(.vertical, 3)
@@ -406,11 +446,20 @@ struct DashboardView: View {
                     }
             }
         }
+        .chartXScale(domain: activityXDomain(for: usage))
         .chartYScale(domain: 0...max(1, Double(maximumTokens) * 1.08))
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: max(1, min(8, usage.count)))) {
+            AxisMarks(values: .automatic(desiredCount: max(1, min(8, usage.count)))) { value in
                 AxisGridLine(); AxisTick()
-                AxisValueLabel(format: usage.count <= 7 ? .dateTime.weekday(.abbreviated) : .dateTime.month(.abbreviated).day())
+                AxisValueLabel(centered: false, anchor: .top, offsetsMarks: false) {
+                    if let date = value.as(Date.self) {
+                        if usage.count <= 7 {
+                            Text(date, format: .dateTime.weekday(.abbreviated))
+                        } else {
+                            Text(date, format: .dateTime.month(.abbreviated).day())
+                        }
+                    }
+                }
             }
         }
         .chartYAxis {
@@ -424,6 +473,7 @@ struct DashboardView: View {
         }
         .chartYAxisLabel("Tokens")
         .chartXSelection(value: $selectedActivityDate)
+        .accessibilityIdentifier("activity-detail-chart")
         .accessibilityChartDescriptor(TokenActivityChartDescriptor(
             title: "Codex activity for \(activityRange.periodName.lowercased())",
             summary: "A daily chart of account-wide token activity.",
@@ -431,16 +481,47 @@ struct DashboardView: View {
         ))
     }
 
+    private func activityXDomain(for usage: [DailyUsage]) -> ClosedRange<Date> {
+        guard let first = usage.first?.date, let last = usage.last?.date else {
+            let now = state.currentDate
+            return now.addingTimeInterval(-43_200)...now.addingTimeInterval(43_200)
+        }
+        // Half a day on either side keeps the first and last daily values equally
+        // inset and makes the final points practical selection targets.
+        return first.addingTimeInterval(-43_200)...last.addingTimeInterval(43_200)
+    }
+
+    private func activityAnnotationAlignment(for selected: DailyUsage, in usage: [DailyUsage]) -> Alignment {
+        guard usage.count > 1,
+              let index = usage.firstIndex(where: { $0.id == selected.id }) else { return .center }
+        let position = Double(index) / Double(usage.count - 1)
+        if position <= 0.2 { return .leading }
+        if position >= 0.8 { return .trailing }
+        return .center
+    }
+
     private func usageChart(_ usage: [DailyUsage]) -> some View {
         let maximumTokens = min(Int64(1_000_000_000_000_000), max(Int64(1), usage.map(\.tokens).max() ?? 1))
         return Chart(usage) { day in
-            BarMark(x: .value("Day", day.date, unit: .day), y: .value("Tokens", min(day.tokens, maximumTokens)))
-                .foregroundStyle(.tint).cornerRadius(3)
+            if day.tokens > 0 {
+                BarMark(
+                    x: .value("Day", day.date),
+                    y: .value("Tokens", min(day.tokens, maximumTokens)),
+                    width: .fixed(18)
+                )
+                    .foregroundStyle(.tint).cornerRadius(3)
+            }
         }
+        .chartXScale(domain: activityXDomain(for: usage))
         .chartYScale(domain: 0...max(1, Double(maximumTokens) * 1.08))
         .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: max(1, min(7, usage.count)))) {
-                AxisGridLine(); AxisTick(); AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+            AxisMarks(values: .automatic(desiredCount: max(1, min(7, usage.count)))) { value in
+                AxisGridLine(); AxisTick()
+                AxisValueLabel(centered: false, anchor: .top, offsetsMarks: false) {
+                    if let date = value.as(Date.self) {
+                        Text(date, format: .dateTime.month(.abbreviated).day())
+                    }
+                }
             }
         }
         .chartYAxis {
@@ -453,6 +534,7 @@ struct DashboardView: View {
             }
         }
         .chartYAxisLabel("Tokens")
+        .accessibilityIdentifier("overview-account-activity-chart")
         .accessibilityChartDescriptor(TokenActivityChartDescriptor(
             title: "Codex activity for the last fourteen days",
             summary: "A daily chart of account-wide token activity.",

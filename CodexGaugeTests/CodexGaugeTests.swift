@@ -1,5 +1,6 @@
 import Foundation
 import CoreServices
+import Darwin
 import LightweightCodeRequirements
 import Security
 import Testing
@@ -529,9 +530,67 @@ struct CodexGaugeTests {
         #expect(result?.first?.workspace == "Sample")
         #expect(result?.first?.totalTokens == 800)
         #expect(result?.first?.model == "gpt-test")
+        #expect(result?.first?.state == .running)
         #expect(result?.first?.activity == .thinking)
         #expect(result?.first?.callsPerMinute == 3)
         #expect(abs((result?.first?.latestContextPercent ?? 0) - 0.17) < 0.000_001)
+    }
+
+    @Test func taskIDCreationDateLocatesResumedRolloutDay() throws {
+        let date = try #require(LocalSessionMonitor.creationDate(
+            fromTaskID: "01a025ed-8084-7551-9e8d-7288c78518ce"
+        ))
+        #expect(ISO8601DateFormatter().string(from: date) == "2026-08-21T20:05:17Z")
+        #expect(LocalSessionMonitor.creationDate(
+            fromTaskID: "11111111-2222-3333-4444-555555555555"
+        ) == nil)
+    }
+
+    @Test func lockedLargeRolloutRemainsLiveWhenBoundedTailStartsAfterTaskStart() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sessionDirectory = temporary.appending(path: "sessions/2026/08/21", directoryHint: .isDirectory)
+        let lockDirectory = temporary.appending(path: "thread-writer-locks", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: lockDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let id = "01a025ed-8084-7551-9e8d-7288c78518ce"
+        let lines = [
+            #"{"timestamp":"2026-08-21T20:05:17.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Resumed","model":"gpt-test"}}"#,
+            #"{"timestamp":"2026-08-21T20:06:00.000Z","type":"event_msg","payload":{"type":"task_complete"}}"#,
+            String(repeating: "x", count: 6 * 1_024 * 1_024),
+            #"{"timestamp":"2026-08-29T11:59:00.000Z","type":"event_msg","payload":{"type":"task_started"}}"#,
+            String(repeating: "y", count: 18 * 1_024 * 1_024),
+            #"{"timestamp":"2026-08-29T12:00:00.000Z","type":"response_item","payload":{"type":"reasoning"}}"#
+        ]
+        let file = sessionDirectory.appending(path: "rollout-2026-08-21T20-05-17-\(id).jsonl")
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
+
+        let lock = lockDirectory.appending(path: "\(id).lock")
+        #expect(FileManager.default.createFile(atPath: lock.path, contents: Data()))
+        let lockDescriptor = open(lock.path, O_RDONLY | O_CLOEXEC)
+        #expect(lockDescriptor >= 0)
+        defer {
+            if lockDescriptor >= 0 {
+                flock(lockDescriptor, LOCK_UN)
+                close(lockDescriptor)
+            }
+        }
+        #expect(flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0)
+
+        let monitor = LocalSessionMonitor(
+            codexHomeURL: temporary,
+            clock: FixedClock(now: ISO8601DateFormatter().date(from: "2026-08-29T12:00:10Z")!)
+        )
+        let stream = await monitor.snapshots()
+        var iterator = stream.makeAsyncIterator()
+        let result = await iterator.next()
+        await monitor.stop()
+
+        #expect(result?.count == 1)
+        #expect(result?.first?.id == id)
+        #expect(result?.first?.state == .running)
+        #expect(result?.first?.activity == .thinking)
     }
 
     @Test func localSessionMonitorSkipsOversizedContentAndIgnoresPropertyOrder() async throws {
@@ -567,18 +626,21 @@ struct CodexGaugeTests {
         #expect(result?.first?.latestContextPercent == 0.6)
     }
 
-    @Test func localSessionMonitorBoundsRecentRootTasksAtTwoHundred() async throws {
+    @Test func localSessionMonitorKeepsAllLiveTasksPlusTwoHundredRecentTasks() async throws {
         let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         let sessionDirectory = temporary.appending(path: "sessions/2026/08/23", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: temporary.appending(path: "thread-writer-locks"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
 
-        for index in 0..<205 {
+        for index in 0..<210 {
             let id = String(format: "00000000-0000-0000-0000-%012d", index)
-            let line = #"{"timestamp":"2026-08-23T15:00:00.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Task-\#(index)","model":"gpt-test"}}"#
+            var lines = [#"{"timestamp":"2026-08-23T15:00:00.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Task-\#(index)","model":"gpt-test"}}"#]
+            if index >= 205 {
+                lines.append(#"{"timestamp":"2026-08-23T15:00:01.000Z","type":"event_msg","payload":{"type":"task_started"}}"#)
+            }
             let file = sessionDirectory.appending(path: "rollout-2026-08-23T15-00-00-\(id).jsonl")
-            try Data((line + "\n").utf8).write(to: file)
+            try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
         }
 
         let monitor = LocalSessionMonitor(
@@ -590,7 +652,9 @@ struct CodexGaugeTests {
         let result = await iterator.next()
         await monitor.stop()
 
-        #expect(result?.count == 200)
+        #expect(result?.count == 205)
+        #expect(result?.filter(\.isLive).count == 5)
+        #expect(result?.filter { !$0.isLive }.count == 200)
     }
 
     @Test func activitySeriesUsesCalendarBoundariesAndZeroFillsMissingDays() {

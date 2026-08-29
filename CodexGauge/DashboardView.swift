@@ -118,17 +118,6 @@ struct DashboardView: View {
             }
             .navigationTitle("CodexGauge")
         }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await state.refresh() }
-                } label: {
-                    Label("Refresh allowances", systemImage: "arrow.clockwise")
-                }
-                .help(refreshHelp)
-                .disabled(state.isRefreshing || state.executableURL == nil)
-            }
-        }
         .onChange(of: activityRange) { _, _ in selectedActivityDate = nil }
         .frame(minWidth: 780, minHeight: 540)
     }
@@ -597,12 +586,6 @@ struct DashboardView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
-    }
-
-    private var refreshHelp: String {
-        if state.isRefreshing { return "Refreshing allowances" }
-        guard let fetchedAt = state.accountSnapshot?.fetchedAt else { return "Refresh allowances" }
-        return "Refresh allowances. \(GaugeFormatting.updatedText(since: fetchedAt, now: state.currentDate))."
     }
 
     private var liveSummary: String {

@@ -118,9 +118,9 @@ struct HelpView: View {
             symbol: "wrench.and.screwdriver",
             introduction: "Most connection issues can be resolved without signing in again."
         ) {
-            helpRow("Allowance data is unavailable", symbol: "questionmark.circle", detail: "Open ChatGPT, confirm you are signed in, then choose Refresh. If CodexGauge still cannot connect, choose the Codex helper in Settings.")
+            helpRow("Allowance data is unavailable", symbol: "questionmark.circle", detail: "Open ChatGPT and confirm you are signed in. CodexGauge keeps trying automatically; if it cannot find Codex, choose the helper in Settings.")
             helpRow("A task is missing", symbol: "rectangle.badge.xmark", detail: "Confirm the task has run on this Mac. Tasks that exist only on another linked computer cannot be discovered from local activity.")
-            helpRow("Information looks old", symbol: "exclamationmark.triangle", detail: "CodexGauge keeps the most recent successful update when your Mac is offline or Codex cannot respond. Refresh after the connection returns.")
+            helpRow("Information looks old", symbol: "exclamationmark.triangle", detail: "CodexGauge keeps the most recent successful update while your Mac is offline or Codex cannot respond, then updates automatically when the connection returns.")
             Link("Learn how Codex connects", destination: URL(string: "https://learn.chatgpt.com/docs/app-server")!)
         }
     }

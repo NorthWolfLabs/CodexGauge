@@ -44,7 +44,7 @@ struct SettingsView: View {
                     Text(error).font(.caption).foregroundStyle(.red)
                 }
             }
-            Section("Refresh") {
+            Section("Allowance updates") {
                 Picker("Check allowances", selection: $settings.refreshInterval) {
                     Text("Every second").tag(TimeInterval(1))
                     Text("Every 5 seconds").tag(TimeInterval(5))
@@ -57,7 +57,7 @@ struct SettingsView: View {
                 .onChange(of: settings.refreshInterval) { _, _ in
                     state.rescheduleRefresh()
                 }
-                Text("Live task status updates separately as work happens on this Mac.")
+                Text("This controls only how often CodexGauge checks account allowances. Live tasks update automatically as work happens on this Mac.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -109,7 +109,6 @@ struct SettingsView: View {
                         .foregroundStyle(verified ? .green : .red)
                     }
                 }
-                Button("Check again") { Task { await state.reconnect() } }
             }
         }
         .formStyle(.grouped)

@@ -52,10 +52,6 @@ enum GaugeFormatting {
         return "Resets in \(duration(date.timeIntervalSince(now)))"
     }
 
-    static func updatedText(since date: Date, now: Date = .now) -> String {
-        "Updated \(relativeAge(since: date, now: now))"
-    }
-
     static func relativeAge(since date: Date, now: Date = .now) -> String {
         let interval = now.timeIntervalSince(date)
         guard interval.isFinite else { return "an unknown time ago" }

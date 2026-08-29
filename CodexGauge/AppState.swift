@@ -9,6 +9,12 @@ enum RefreshBackoff {
     }
 }
 
+enum ConnectionRecoveryBackoff {
+    static func delay(forAttempt attempt: Int) -> TimeInterval {
+        min(120, max(15, RefreshBackoff.delay(forFailureCount: max(1, attempt))))
+    }
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -26,6 +32,7 @@ final class AppState {
     private var eventLoop: Task<Void, Never>?
     private var sessionLoop: Task<Void, Never>?
     private var eventRefreshTask: Task<Void, Never>?
+    private var connectionRecoveryTask: Task<Void, Never>?
     private var failureCount = 0
     private var accountIdentity: AccountIdentity?
     private var accountActivity: AccountActivity = .empty
@@ -39,8 +46,7 @@ final class AppState {
     var freshness: DataFreshness = .loading
     var errorMessage: String?
     var executableURL: URL?
-    var isRefreshing = false
-    var lastRefreshAttempt: Date?
+    private var isRefreshing = false
     var notificationAuthorization: NotificationAuthorizationState = .notDetermined
     var executableValidationMessage: String?
 
@@ -105,19 +111,16 @@ final class AppState {
     }
 
     func reconnect() async {
+        connectionRecoveryTask?.cancel()
+        connectionRecoveryTask = nil
         await stopProviders()
         executableURL = nil
         await connect()
     }
 
-    func refresh() async {
-        await refreshLimits()
-    }
-
     private func refreshLimits() async {
         guard let accountProvider, !isRefreshing else { return }
         isRefreshing = true
-        lastRefreshAttempt = clock.now
         defer { isRefreshing = false }
         do {
             let limits = try await accountProvider.fetchRateLimits()
@@ -217,12 +220,16 @@ final class AppState {
         }
     }
 
-    private func connect() async {
-        guard let executable = await locator.locate(override: settings.executableOverride) else {
+    private func connect(scheduleRecovery: Bool = true) async {
+        guard !Task.isCancelled else { return }
+        let locatedExecutable = await locator.locate(override: settings.executableOverride)
+        guard !Task.isCancelled else { return }
+        guard let executable = locatedExecutable else {
             executableURL = nil
             hasLoadedConversations = true
             freshness = accountSnapshot == nil ? .unavailable : .stale
             errorMessage = CodexAppServerError.executableUnavailable.localizedDescription
+            if scheduleRecovery { startConnectionRecoveryLoop() }
             return
         }
         executableURL = executable
@@ -239,6 +246,22 @@ final class AppState {
         startLoops(account: account, sessions: sessions)
         await refreshIdentityAndActivity(using: account)
         await refreshLimits()
+    }
+
+    private func startConnectionRecoveryLoop() {
+        guard connectionRecoveryTask == nil else { return }
+        connectionRecoveryTask = Task { [weak self] in
+            var attempt = 1
+            while !Task.isCancelled {
+                let delay = ConnectionRecoveryBackoff.delay(forAttempt: attempt)
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let self else { break }
+                guard self.accountProvider == nil else { break }
+                await self.connect(scheduleRecovery: false)
+                guard self.accountProvider == nil else { break }
+                attempt += 1
+            }
+        }
     }
 
     private func startLoops(
@@ -313,7 +336,7 @@ final class AppState {
         if delay > 0 {
             try? await Task.sleep(for: .seconds(delay))
         }
-        await refresh()
+        await refreshLimits()
     }
 
     private func scheduleEventLimitRefresh() {

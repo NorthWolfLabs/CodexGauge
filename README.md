@@ -95,7 +95,7 @@ The application target uses macOS 14.4, hardened runtime, no App Sandbox, `LSUIE
 
 ### Usage is unavailable
 
-Open ChatGPT, confirm that you are signed in, and choose Refresh. In Settings, **Check again** reruns discovery. A manually selected helper is launched and initialized before CodexGauge accepts it.
+Open ChatGPT and confirm that you are signed in. CodexGauge keeps trying automatically. If it cannot find Codex, choose the helper in Settings; a manually selected helper is launched and initialized before CodexGauge accepts it.
 
 ### A task is missing
 

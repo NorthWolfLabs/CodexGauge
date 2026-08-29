@@ -112,6 +112,9 @@ struct CodexGaugeTests {
         #expect(RefreshBackoff.delay(forFailureCount: 1) == 2)
         #expect(RefreshBackoff.delay(forFailureCount: 4) == 16)
         #expect(RefreshBackoff.delay(forFailureCount: 20) == 120)
+        #expect(ConnectionRecoveryBackoff.delay(forAttempt: 1) == 15)
+        #expect(ConnectionRecoveryBackoff.delay(forAttempt: 4) == 16)
+        #expect(ConnectionRecoveryBackoff.delay(forAttempt: 20) == 120)
     }
 
     @Test func snapshotWritesAreCoalescedExceptForResetChanges() {

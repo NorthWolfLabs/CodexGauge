@@ -93,12 +93,11 @@ struct ContentView: View {
                 ContentUnavailableView {
                     Label("Allowance data unavailable", systemImage: "gauge.with.needle")
                 } description: {
-                    Text(state.errorMessage ?? "Looking for Codex on this Mac…")
+                    Text("Open ChatGPT to connect. CodexGauge will keep trying automatically.")
                 } actions: {
                     HStack {
                         Button("Open ChatGPT", action: state.openChatGPT)
-                        Button("Retry") { Task { await state.reconnect() } }
-                            .keyboardShortcut(.defaultAction)
+                        Button("Settings…", action: onShowSettings)
                     }
                 }
                 .accessibilityIdentifier("usage-unavailable")
@@ -111,7 +110,7 @@ struct ContentView: View {
     private var freshnessLabel: some View {
         switch state.displayFreshness {
         case .loading:
-            Label("Refreshing", systemImage: "arrow.clockwise")
+            Label("Connecting", systemImage: "ellipsis.circle")
         case .fresh:
             Label("Current", systemImage: "checkmark.circle.fill")
         case .stale:
@@ -336,8 +335,6 @@ struct ContentView: View {
     private var footer: some View {
         HStack(spacing: 12) {
             Spacer()
-            RefreshAllowancesButton(state: state, clock: clock)
-
             Button(action: onShowDashboard) {
                 Image(systemName: "chart.xyaxis.line")
                     .font(.system(size: 14, weight: .medium))
@@ -811,41 +808,6 @@ private struct TurnDurationLabel: View {
     var body: some View {
         Label(GaugeFormatting.duration(clock.now.timeIntervalSince(startedAt)), systemImage: "timer")
             .monospacedDigit()
-    }
-}
-
-private struct RefreshAllowancesButton: View {
-    @Bindable var state: AppState
-    @Bindable var clock: VisibleSurfaceClock
-
-    var body: some View {
-        Button {
-            Task { await state.refresh() }
-        } label: {
-            Group {
-                if state.isRefreshing {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                }
-            }
-            .font(.system(size: 14, weight: .medium))
-            .frame(width: 34, height: 34)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .help(helpText)
-        .accessibilityLabel("Refresh allowances")
-        .accessibilityHint(helpText)
-        .disabled(state.isRefreshing || state.executableURL == nil)
-    }
-
-    private var helpText: String {
-        if state.isRefreshing { return "Refreshing allowances" }
-        guard let fetchedAt = state.accountSnapshot?.fetchedAt else {
-            return "Refresh allowances. No update available yet."
-        }
-        return "Refresh allowances. \(GaugeFormatting.updatedText(since: fetchedAt, now: clock.now))."
     }
 }
 

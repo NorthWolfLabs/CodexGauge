@@ -67,6 +67,7 @@ final class CodexGaugeUITests: XCTestCase {
         statusItem.click()
         let panel = app.descendants(matching: .any).matching(identifier: "gauge-panel").firstMatch
         XCTAssertTrue(panel.waitForExistence(timeout: 3), "Left-click should present the telemetry popover")
+        XCTAssertFalse(app.buttons["Refresh allowances"].exists)
         capture("01-popover")
 
         let more = app.buttons["popover-more-button"].firstMatch
@@ -95,10 +96,12 @@ final class CodexGaugeUITests: XCTestCase {
 
         statusItem.rightClick()
         XCTAssertTrue(app.menuItems["Quit CodexGauge"].waitForExistence(timeout: 3), "Right-click should present the native context menu")
+        XCTAssertFalse(app.menuItems["Refresh"].exists)
 
         statusItem.menuItems["Open Dashboard…"].click()
         let dashboard = app.windows["CodexGauge"]
         XCTAssertTrue(dashboard.waitForExistence(timeout: 3), "Dashboard should open in a full native window")
+        XCTAssertFalse(dashboard.buttons["Refresh allowances"].exists)
         capture("02-dashboard-overview")
 
         dashboard.staticTexts["Tasks"].firstMatch.click()
@@ -148,6 +151,7 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(settingsWindow.waitForExistence(timeout: 3), "Settings should open in a reusable native window")
         XCTAssertTrue(settingsWindow.buttons["General"].exists)
         XCTAssertTrue(settingsWindow.staticTexts["Startup"].exists, "General should be the active pane on first presentation")
+        XCTAssertFalse(settingsWindow.buttons["Check again"].exists)
         capture("06-settings-general")
         let notifications = settingsWindow.buttons["Notifications"]
         XCTAssertTrue(notifications.waitForExistence(timeout: 3), "Settings panes should be available from the window toolbar")
@@ -290,6 +294,10 @@ final class CodexGaugeUITests: XCTestCase {
                 identified.waitForExistence(timeout: 2) || text.waitForExistence(timeout: 2),
                 "Missing expected state \(expectedIdentifierOrText) for \(arguments)"
             )
+            if arguments.contains("-uiTestMissingHelper") || arguments.contains("-uiTestSignedOut") {
+                XCTAssertFalse(app.buttons["Retry"].exists)
+                XCTAssertTrue(app.buttons["Settings…"].exists)
+            }
             app.terminate()
         }
     }

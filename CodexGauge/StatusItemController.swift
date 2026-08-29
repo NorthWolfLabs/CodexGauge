@@ -93,7 +93,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func makeContextMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(withTitle: "Refresh", action: #selector(refresh), keyEquivalent: "r").target = self
         menu.addItem(withTitle: "Open Dashboard…", action: #selector(showDashboard), keyEquivalent: "d").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
         let helpItem = menu.addItem(withTitle: "CodexGauge Help", action: #selector(showHelp), keyEquivalent: "?")
@@ -127,10 +126,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
                 in: nil
             )
         }
-    }
-
-    @objc private func refresh() {
-        Task { await state.refresh() }
     }
 
     @objc private func showSettings() {
@@ -275,7 +270,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             _ = state.menuBarTitle
             _ = state.menuBarSymbol
             _ = state.menuBarAccessibilityLabel
-            _ = state.isRefreshing
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.updateStatusItem()
@@ -292,7 +286,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         button.title = " \(state.menuBarTitle)"
         button.toolTip = state.menuBarAccessibilityLabel
         button.setAccessibilityLabel(state.menuBarAccessibilityLabel)
-        contextMenu.item(withTitle: "Refresh")?.isEnabled = !state.isRefreshing && state.executableURL != nil
     }
 
     private var preferredPopoverHeight: CGFloat {

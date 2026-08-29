@@ -77,7 +77,7 @@ struct HelpView: View {
             helpRow("Live", symbol: "circle.fill", detail: "The task is working on this Mac or is waiting for your input or approval.", tint: .green)
             helpRow("Recently active", symbol: "clock", detail: "CodexGauge keeps up to 200 local root tasks seen during the past 24 hours. The popover shows the four newest tasks; the Dashboard starts with ten and shows ten more at a time.")
             helpRow("Began responding", symbol: "bolt", detail: "How long Codex took to begin producing a response after the current turn started.")
-            helpRow("Token rate", symbol: "speedometer", detail: "A rolling measure of tokens recorded during the previous 60 seconds. It updates as local activity arrives, with a three-second fallback check.")
+            helpRow("Token rate", symbol: "speedometer", detail: "A time-weighted rolling measure of tokens recorded during the previous 60 seconds. It updates about once a second and gradually falls during tool use or other pauses.")
             callout("Task token rates show local activity, not how much of an account allowance each task used. Status names come from task events; CodexGauge does not inspect message or tool content to determine them.", symbol: "info.circle")
         }
     }

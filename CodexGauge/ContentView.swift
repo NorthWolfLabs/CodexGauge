@@ -500,10 +500,8 @@ private struct LiveConversationRow: View {
                     Spacer(minLength: 8)
 
                     VStack(alignment: .trailing, spacing: 1) {
-                        Text(GaugeFormatting.tokenRate(conversation.tokensPerMinute))
+                        AnimatedTokenRateText(rate: conversation.tokensPerMinute)
                             .font(.subheadline.weight(.medium).monospacedDigit())
-                            .contentTransition(.numericText())
-                            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: conversation.tokensPerMinute)
                         Text("tokens/min")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -618,9 +616,9 @@ private struct LiveConversationDetails: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                ConversationMetricCard(
+                AnimatedConversationMetricCard(
                     title: "5-minute pace",
-                    value: GaugeFormatting.tokenRate(conversation.tokensPerFiveMinutes),
+                    rate: conversation.tokensPerFiveMinutes,
                     unit: "tokens/min"
                 )
                 if let calls = conversation.callsPerMinute {
@@ -655,6 +653,30 @@ private struct LiveConversationDetails: View {
             Text(value).fontWeight(.medium).monospacedDigit()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AnimatedConversationMetricCard: View {
+    let title: String
+    let rate: Double
+    let unit: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            AnimatedTokenRateText(rate: rate)
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .lineLimit(1)
+            Text(unit)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
+        .accessibilityElement(children: .combine)
     }
 }
 

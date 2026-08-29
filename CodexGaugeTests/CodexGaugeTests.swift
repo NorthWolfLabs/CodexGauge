@@ -97,6 +97,7 @@ struct CodexGaugeTests {
         #expect(GaugeFormatting.tokenRate(-1) == "0")
         #expect(!GaugeFormatting.tokenRate(.greatestFiniteMagnitude).isEmpty)
         #expect(GaugeFormatting.nonnegativeInt64(.greatestFiniteMagnitude) == .max)
+        #expect(GaugeFormatting.tokenRate(549_000) == GaugeFormatting.tokenRate(549_200))
     }
 
     @Test func recentDurationsUseStableCoarseUnits() {
@@ -536,6 +537,129 @@ struct CodexGaugeTests {
         #expect(abs((result?.first?.latestContextPercent ?? 0) - 0.17) < 0.000_001)
     }
 
+    @Test func liveTaskFallbackTailsAnUnlockedTaskWhenFilesystemEventsAreUnavailable() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sessionDirectory = temporary.appending(path: "sessions/2026/08/21", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: temporary.appending(path: "thread-writer-locks"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let id = "11111111-2222-3333-4444-666666666666"
+        let initialLines = [
+            #"{"timestamp":"2026-08-21T20:00:00.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/LiveFallback","model":"gpt-test"}}"#,
+            #"{"timestamp":"2026-08-21T20:00:01.000Z","type":"event_msg","payload":{"type":"task_started"}}"#
+        ]
+        let file = sessionDirectory.appending(path: "rollout-2026-08-21T20-00-00-\(id).jsonl")
+        try Data((initialLines.joined(separator: "\n") + "\n").utf8).write(to: file)
+
+        let monitor = LocalSessionMonitor(
+            codexHomeURL: temporary,
+            clock: FixedClock(now: ISO8601DateFormatter().date(from: "2026-08-21T20:00:10Z")!),
+            maintenanceInterval: .milliseconds(25),
+            watchesFilesystemEvents: false
+        )
+        let stream = await monitor.snapshots()
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.first?.state == .running)
+        #expect(initial?.first?.totalTokens == 0)
+
+        let tokenRecord = #"{"timestamp":"2026-08-21T20:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":80,"cached_input_tokens":50,"cache_write_input_tokens":0,"output_tokens":20,"reasoning_output_tokens":0,"total_tokens":100},"last_token_usage":{"input_tokens":80,"cached_input_tokens":50,"cache_write_input_tokens":0,"output_tokens":20,"reasoning_output_tokens":0,"total_tokens":100},"model_context_window":100000}}}"#
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((tokenRecord + "\n").utf8))
+        try handle.close()
+
+        try await Task.sleep(for: .milliseconds(200))
+        await monitor.stop()
+        let updated = await iterator.next()
+
+        #expect(updated?.first?.state == .running)
+        #expect(updated?.first?.totalTokens == 100)
+        #expect(updated?.first?.tokensPerMinute == 100)
+    }
+
+    @Test func localTokenRatesDecayEachMaintenanceTickWithoutNewFileData() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sessionDirectory = temporary.appending(path: "sessions/2026/08/29", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: temporary.appending(path: "thread-writer-locks"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let now = ISO8601DateFormatter().date(from: "2026-08-29T16:00:10Z")!
+        let clock = AdjustableClock(now: now)
+        let id = "11111111-2222-3333-4444-888888888888"
+        let lines = [
+            #"{"timestamp":"2026-08-29T16:00:09.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Decay","model":"gpt-test"}}"#,
+            #"{"timestamp":"2026-08-29T16:00:09.000Z","type":"event_msg","payload":{"type":"task_started"}}"#,
+            #"{"timestamp":"2026-08-29T16:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":600},"last_token_usage":{"input_tokens":500,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":600}}}}"#
+        ]
+        let file = sessionDirectory.appending(path: "rollout-2026-08-29T16-00-09-\(id).jsonl")
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
+
+        let monitor = LocalSessionMonitor(
+            codexHomeURL: temporary,
+            clock: clock,
+            maintenanceInterval: .milliseconds(25),
+            watchesFilesystemEvents: false
+        )
+        let stream = await monitor.snapshots()
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.first?.tokensPerMinute == 600)
+        #expect(initial?.first?.tokensPerFiveMinutes == 120)
+
+        clock.advance(by: 1)
+        let decayed = await iterator.next()
+        await monitor.stop()
+
+        #expect(abs((decayed?.first?.tokensPerMinute ?? 0) - 590) < 0.000_001)
+        #expect(abs((decayed?.first?.tokensPerFiveMinutes ?? 0) - 119.6) < 0.000_001)
+    }
+
+    @Test func liveTaskFallbackSkipsAStaleBacklogToPublishTheNewestState() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sessionDirectory = temporary.appending(path: "sessions/2026/08/29", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: temporary.appending(path: "thread-writer-locks"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let id = "11111111-2222-3333-4444-777777777777"
+        let initialLines = [
+            #"{"timestamp":"2026-08-29T16:00:00.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/TailCatchUp","model":"gpt-test"}}"#,
+            #"{"timestamp":"2026-08-29T16:00:01.000Z","type":"event_msg","payload":{"type":"task_started"}}"#,
+            #"{"timestamp":"2026-08-29T16:00:02.000Z","type":"response_item","payload":{"type":"reasoning"}}"#
+        ]
+        let file = sessionDirectory.appending(path: "rollout-2026-08-29T16-00-00-\(id).jsonl")
+        try Data((initialLines.joined(separator: "\n") + "\n").utf8).write(to: file)
+
+        let monitor = LocalSessionMonitor(
+            codexHomeURL: temporary,
+            clock: FixedClock(now: ISO8601DateFormatter().date(from: "2026-08-29T16:00:10Z")!),
+            maintenanceInterval: .milliseconds(25),
+            watchesFilesystemEvents: false
+        )
+        let stream = await monitor.snapshots()
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.first?.activity == .thinking)
+
+        let oversizedIrrelevantRecord = #"{"timestamp":"2026-08-29T16:00:03.000Z","type":"response_item","payload":{"content":"\#(String(repeating: "x", count: 10 * 1_024 * 1_024))"}}"#
+        let completion = #"{"timestamp":"2026-08-29T16:00:04.000Z","type":"event_msg","payload":{"type":"task_complete"}}"#
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((oversizedIrrelevantRecord + "\n" + completion + "\n").utf8))
+        try handle.close()
+
+        try await Task.sleep(for: .milliseconds(200))
+        await monitor.stop()
+        let updated = await iterator.next()
+
+        #expect(updated?.first?.state == .recent)
+        #expect(updated?.first?.activity == .waiting)
+        #expect(updated?.first?.turnStartedAt == nil)
+    }
+
     @Test func taskIDCreationDateLocatesResumedRolloutDay() throws {
         let date = try #require(LocalSessionMonitor.creationDate(
             fromTaskID: "01a025ed-8084-7551-9e8d-7288c78518ce"
@@ -762,4 +886,21 @@ struct CodexGaugeTests {
 
 private struct FixedClock: ClockProviding {
     let now: Date
+}
+
+private final class AdjustableClock: ClockProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date
+
+    init(now: Date) {
+        value = now
+    }
+
+    var now: Date {
+        lock.withLock { value }
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock { value = value.addingTimeInterval(interval) }
+    }
 }

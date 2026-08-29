@@ -16,7 +16,11 @@ enum GaugeFormatting {
 
     static func tokenRate(_ value: Double) -> String {
         guard value.isFinite, value >= 1 else { return "0" }
-        return nonnegativeInt64(value).formatted(.number.notation(.compactName))
+        return nonnegativeInt64(value).formatted(
+            .number
+                .notation(.compactName)
+                .precision(.fractionLength(0))
+        )
     }
 
     static func duration(_ seconds: TimeInterval) -> String {

@@ -54,71 +54,12 @@ struct DashboardView: View {
         }
     }
 
-    private struct ThroughputSample: Identifiable, Hashable {
-        let taskID: String
-        let taskTitle: String
-        let date: Date
-        let rate: Double
-        var id: String { "\(taskID)-\(date.timeIntervalSinceReferenceDate)" }
-    }
-
-    private struct ThroughputChartDescriptor: AXChartDescriptorRepresentable {
-        let samples: [ThroughputSample]
-        let start: Date
-        let end: Date
-        let maximumRate: Double
-
-        func makeChartDescriptor() -> AXChartDescriptor {
-            let startValue = start.timeIntervalSinceReferenceDate
-            let endValue = max(startValue + 1, end.timeIntervalSinceReferenceDate)
-            let safeMaximum = min(1_000_000_000_000, max(1, maximumRate))
-            let xAxis = AXNumericDataAxisDescriptor(
-                title: "Time",
-                range: startValue...endValue,
-                gridlinePositions: [],
-                valueDescriptionProvider: { value in
-                    Date(timeIntervalSinceReferenceDate: value).formatted(date: .omitted, time: .standard)
-                }
-            )
-            let yAxis = AXNumericDataAxisDescriptor(
-                title: "Tokens per minute",
-                range: 0...safeMaximum,
-                gridlinePositions: [0, safeMaximum],
-                valueDescriptionProvider: { value in
-                    "\(GaugeFormatting.tokenRate(value)) tokens per minute"
-                }
-            )
-            let series = Dictionary(grouping: samples, by: \.taskID).values.map { taskSamples in
-                let sorted = taskSamples.sorted { $0.date < $1.date }
-                return AXDataSeriesDescriptor(
-                    name: sorted.first?.taskTitle ?? "Local task",
-                    isContinuous: true,
-                    dataPoints: sorted.map { sample in
-                        AXDataPoint(
-                            x: sample.date.timeIntervalSinceReferenceDate,
-                            y: sample.rate,
-                            label: "\(sample.taskTitle), \(GaugeFormatting.tokenRate(sample.rate)) tokens per minute"
-                        )
-                    }
-                )
-            }
-            return AXChartDescriptor(
-                title: "Live task throughput",
-                summary: "Local token rates during the last five minutes.",
-                xAxis: xAxis,
-                yAxis: yAxis,
-                series: series
-            )
-        }
-    }
-
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var state: AppState
     @Bindable var clock: VisibleSurfaceClock
     @State private var selection: Section? = .overview
     @State private var activityRange: ActivityRange = .week
     @State private var selectedActivityDate: Date?
-    @State private var throughputHistory: [ThroughputSample] = []
     @State private var recentTaskLimit = 10
 
     init(state: AppState, clock: VisibleSurfaceClock) {
@@ -165,15 +106,7 @@ struct DashboardView: View {
                 .disabled(state.isRefreshing || state.executableURL == nil)
             }
         }
-        .onAppear { recordThroughput() }
-        .onChange(of: liveConversations) { _, _ in
-            guard selection == .overview else { return }
-            recordThroughput()
-        }
         .onChange(of: activityRange) { _, _ in selectedActivityDate = nil }
-        .onChange(of: selection) { _, newValue in
-            if newValue == .overview { recordThroughput() }
-        }
         .frame(minWidth: 780, minHeight: 540)
     }
 
@@ -194,12 +127,8 @@ struct DashboardView: View {
                     }
                 }
 
-                if !liveConversations.isEmpty && throughputHistory.count > liveConversations.count {
-                    GroupBox("Live rate · last 5 minutes") {
-                        liveThroughputChart
-                            .frame(height: max(150, CGFloat(liveConversations.count) * 44))
-                            .padding(.top, 8)
-                    }
+                if !liveConversations.isEmpty {
+                    LiveThroughputSection(conversations: liveConversations, clock: clock)
                 }
             }
             .padding(24)
@@ -361,45 +290,6 @@ struct DashboardView: View {
         }
     }
 
-    private var liveThroughputChart: some View {
-        let now = throughputHistory.last?.date ?? state.currentDate
-        let cutoff = now.addingTimeInterval(-300)
-        let samples = throughputHistory.filter { $0.date >= cutoff && $0.rate.isFinite && $0.rate >= 0 }
-        let sampleCounts = Dictionary(grouping: samples, by: \.taskID).mapValues(\.count)
-        let maximumRate = min(1_000_000_000_000, max(1, samples.map(\.rate).max() ?? 1))
-        return Chart(samples) { sample in
-            if sampleCounts[sample.taskID, default: 0] > 1 {
-                LineMark(x: .value("Time", sample.date), y: .value("Tokens per minute", sample.rate), series: .value("Task", sample.taskTitle))
-                    .foregroundStyle(by: .value("Task", sample.taskTitle))
-                    .interpolationMethod(.catmullRom)
-            }
-            PointMark(x: .value("Time", sample.date), y: .value("Tokens per minute", sample.rate))
-                .foregroundStyle(by: .value("Task", sample.taskTitle))
-                .symbolSize(samples.count < 15 ? 22 : 8)
-        }
-        .chartYScale(domain: 0...(maximumRate * 1.08))
-        .chartXScale(domain: cutoff...now)
-        .chartXAxis {
-            AxisMarks(values: .automatic(desiredCount: 5)) {
-                AxisGridLine(); AxisTick(); AxisValueLabel(format: .dateTime.hour().minute().second())
-            }
-        }
-        .chartYAxis {
-            AxisMarks { value in
-                AxisGridLine(); AxisTick()
-                AxisValueLabel { if let rate = value.as(Double.self) { Text(GaugeFormatting.tokenRate(rate)) } }
-            }
-        }
-        .chartYAxisLabel("Tokens per minute")
-        .chartLegend(position: .bottom, alignment: .leading)
-        .accessibilityChartDescriptor(ThroughputChartDescriptor(
-            samples: samples,
-            start: cutoff,
-            end: now,
-            maximumRate: maximumRate
-        ))
-    }
-
     private func liveConversationCard(_ conversation: ConversationTelemetry) -> some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 16) {
@@ -420,8 +310,8 @@ struct DashboardView: View {
                 }
 
                 HStack(spacing: 12) {
-                    dashboardValue("Current rate", "\(GaugeFormatting.tokenRate(conversation.tokensPerMinute)) tokens/min", symbol: "speedometer")
-                    dashboardValue("5-minute average", "\(GaugeFormatting.tokenRate(conversation.tokensPerFiveMinutes)) tokens/min", symbol: "chart.line.uptrend.xyaxis")
+                    dashboardRateValue("Current rate", conversation.tokensPerMinute, symbol: "speedometer")
+                    dashboardRateValue("5-minute average", conversation.tokensPerFiveMinutes, symbol: "chart.line.uptrend.xyaxis")
                     if let calls = conversation.callsPerMinute {
                         dashboardValue("Model calls", String(format: "%.1f/min", calls), symbol: "cpu")
                     }
@@ -602,6 +492,22 @@ struct DashboardView: View {
         .accessibilityElement(children: .combine)
     }
 
+    private func dashboardRateValue(_ title: String, _ rate: Double, symbol: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(title, systemImage: symbol)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                AnimatedTokenRateText(rate: rate)
+                Text("tokens/min")
+            }
+            .font(.subheadline.weight(.medium).monospacedDigit())
+            .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
     private func detailValue(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption2).foregroundStyle(.secondary)
@@ -653,26 +559,6 @@ struct DashboardView: View {
         let change = (Double(delta) / Double(previous)) * 100
         let formatted = change.formatted(.number.precision(.fractionLength(0)).sign(strategy: .always())) + "%"
         return (formatted, comparisonDetail, change >= 0 ? "arrow.up.right" : "arrow.down.right")
-    }
-
-    private func recordThroughput() {
-        PerformanceSignposts.event("Chart update")
-        let now = state.currentDate
-        let samples = liveConversations.map { conversation in
-            let finiteRate = conversation.tokensPerMinute.isFinite ? conversation.tokensPerMinute : 0
-            return ThroughputSample(
-                taskID: conversation.id,
-                taskTitle: conversation.title,
-                date: now,
-                rate: min(1_000_000_000_000, max(0, finiteRate))
-            )
-        }
-        let cutoff = now.addingTimeInterval(-300)
-        throughputHistory.removeAll { $0.date < cutoff }
-        throughputHistory.append(contentsOf: samples)
-        if throughputHistory.count > 3_000 {
-            throughputHistory.removeFirst(throughputHistory.count - 3_000)
-        }
     }
 
     private var activityTotalTitle: String {
@@ -737,6 +623,258 @@ struct DashboardView: View {
         let base = "\(window.clampedUsedPercent) percent used, \(window.remainingPercent) percent remaining; minimum 0, maximum 100"
         guard let reset = window.resetsAt else { return base }
         return "\(base); resets \(GaugeFormatting.exactDate(reset))"
+    }
+}
+
+private struct ThroughputSample: Identifiable, Hashable {
+    let taskID: String
+    let taskTitle: String
+    let date: Date
+    let rate: Double
+    var id: String { "\(taskID)-\(date.timeIntervalSinceReferenceDate)" }
+}
+
+private struct ThroughputChartDescriptor: AXChartDescriptorRepresentable {
+    let samples: [ThroughputSample]
+    let start: Date
+    let end: Date
+    let maximumRate: Double
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let startValue = start.timeIntervalSinceReferenceDate
+        let endValue = max(startValue + 1, end.timeIntervalSinceReferenceDate)
+        let safeMaximum = min(1_000_000_000_000, max(1, maximumRate))
+        let xAxis = AXNumericDataAxisDescriptor(
+            title: "Time",
+            range: startValue...endValue,
+            gridlinePositions: [],
+            valueDescriptionProvider: { value in
+                Date(timeIntervalSinceReferenceDate: value).formatted(date: .omitted, time: .standard)
+            }
+        )
+        let yAxis = AXNumericDataAxisDescriptor(
+            title: "Tokens per minute",
+            range: 0...safeMaximum,
+            gridlinePositions: [0, safeMaximum],
+            valueDescriptionProvider: { value in
+                "\(GaugeFormatting.tokenRate(value)) tokens per minute"
+            }
+        )
+        let series = Dictionary(grouping: samples, by: \.taskID).values.map { taskSamples in
+            let sorted = taskSamples.sorted { $0.date < $1.date }
+            return AXDataSeriesDescriptor(
+                name: sorted.first?.taskTitle ?? "Local task",
+                isContinuous: true,
+                dataPoints: sorted.map { sample in
+                    AXDataPoint(
+                        x: sample.date.timeIntervalSinceReferenceDate,
+                        y: sample.rate,
+                        label: "\(sample.taskTitle), \(GaugeFormatting.tokenRate(sample.rate)) tokens per minute"
+                    )
+                }
+            )
+        }
+        return AXChartDescriptor(
+            title: "Live task throughput",
+            summary: "Local token rates during the last five minutes.",
+            xAxis: xAxis,
+            yAxis: yAxis,
+            series: series
+        )
+    }
+}
+
+private struct LiveThroughputSection: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    let conversations: [ConversationTelemetry]
+    @Bindable var clock: VisibleSurfaceClock
+    @State private var history: [ThroughputSample] = []
+
+    var body: some View {
+        Group {
+            if history.count > conversations.count {
+                GroupBox("Live rate · last 5 minutes") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: reduceMotion)) { timeline in
+                            flowingChart(at: reduceMotion ? (history.last?.date ?? clock.now) : timeline.date)
+                        }
+                        .frame(height: 180)
+
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 140), spacing: 8, alignment: .leading)],
+                            alignment: .leading,
+                            spacing: 5
+                        ) {
+                            ForEach(conversations) { conversation in
+                                HStack(spacing: 5) {
+                                    Circle()
+                                        .fill(seriesColor(for: conversation.id))
+                                        .frame(width: 7, height: 7)
+                                        .accessibilityHidden(true)
+                                    Text(conversation.title)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+            }
+        }
+        .onAppear { recordThroughput(at: clock.now) }
+        .onChange(of: clock.now) { _, now in recordThroughput(at: now) }
+    }
+
+    private func flowingChart(at proposedNow: Date) -> some View {
+        let newestSample = history.last?.date ?? clock.now
+        let now = max(newestSample, proposedNow)
+        let cutoff = now.addingTimeInterval(-300)
+        let samples = history.filter { $0.date >= cutoff && $0.rate.isFinite && $0.rate >= 0 }
+        let maximumRate = min(1_000_000_000_000, max(1, samples.map(\.rate).max() ?? 1))
+        return Canvas { context, size in
+            drawFlowingChart(
+                in: &context,
+                size: size,
+                samples: samples,
+                start: cutoff,
+                end: now,
+                maximumRate: maximumRate
+            )
+        }
+        .accessibilityChartDescriptor(ThroughputChartDescriptor(
+            samples: samples,
+            start: cutoff,
+            end: now,
+            maximumRate: maximumRate
+        ))
+    }
+
+    private func recordThroughput(at now: Date) {
+        PerformanceSignposts.event("Chart update")
+        let samples = conversations.map { conversation in
+            let finiteRate = conversation.tokensPerMinute.isFinite ? conversation.tokensPerMinute : 0
+            return ThroughputSample(
+                taskID: conversation.id,
+                taskTitle: conversation.title,
+                date: now,
+                rate: min(1_000_000_000_000, max(0, finiteRate))
+            )
+        }
+        let cutoff = now.addingTimeInterval(-300)
+        var updatedHistory = history.filter { $0.date >= cutoff }
+        updatedHistory.append(contentsOf: samples)
+        if updatedHistory.count > 3_000 {
+            updatedHistory.removeFirst(updatedHistory.count - 3_000)
+        }
+        history = updatedHistory
+    }
+
+    private func drawFlowingChart(
+        in context: inout GraphicsContext,
+        size: CGSize,
+        samples: [ThroughputSample],
+        start: Date,
+        end: Date,
+        maximumRate: Double
+    ) {
+        guard size.width.isFinite, size.height.isFinite, size.width > 80, size.height > 60 else { return }
+        let plot = CGRect(x: 48, y: 12, width: max(1, size.width - 60), height: max(1, size.height - 38))
+        let range = max(1, end.timeIntervalSince(start))
+        let safeMaximum = max(1, maximumRate * 1.08)
+
+        for index in 0...4 {
+            let fraction = CGFloat(index) / 4
+            let y = plot.maxY - plot.height * fraction
+            var gridLine = Path()
+            gridLine.move(to: CGPoint(x: plot.minX, y: y))
+            gridLine.addLine(to: CGPoint(x: plot.maxX, y: y))
+            context.stroke(gridLine, with: .color(.secondary.opacity(0.16)), lineWidth: 0.5)
+
+            let value = safeMaximum * Double(fraction)
+            let label = context.resolve(
+                Text(GaugeFormatting.tokenRate(value))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            )
+            context.draw(label, at: CGPoint(x: plot.minX - 7, y: y), anchor: .trailing)
+        }
+
+        for index in 0...4 {
+            let fraction = CGFloat(index) / 4
+            let x = plot.minX + plot.width * fraction
+            var gridLine = Path()
+            gridLine.move(to: CGPoint(x: x, y: plot.minY))
+            gridLine.addLine(to: CGPoint(x: x, y: plot.maxY))
+            context.stroke(gridLine, with: .color(.secondary.opacity(0.12)), lineWidth: 0.5)
+        }
+
+        let timeLabels = [start, start.addingTimeInterval(range / 2), end]
+        let anchors: [UnitPoint] = [.bottomLeading, .bottom, .bottomTrailing]
+        let xPositions = [plot.minX, plot.midX, plot.maxX]
+        for index in timeLabels.indices {
+            let label = context.resolve(
+                Text(timeLabels[index].formatted(date: .omitted, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            )
+            context.draw(
+                label,
+                at: CGPoint(x: xPositions[index], y: plot.maxY + 20),
+                anchor: anchors[index]
+            )
+        }
+
+        var plotContext = context
+        plotContext.clip(to: Path(plot))
+        for (taskID, taskSamples) in Dictionary(grouping: samples, by: \.taskID) {
+            let points = taskSamples.sorted { $0.date < $1.date }.map { sample in
+                let xFraction = sample.date.timeIntervalSince(start) / range
+                let yFraction = min(1, max(0, sample.rate / safeMaximum))
+                return CGPoint(
+                    x: plot.minX + plot.width * CGFloat(xFraction),
+                    y: plot.maxY - plot.height * CGFloat(yFraction)
+                )
+            }
+            guard points.count > 1 else { continue }
+            plotContext.stroke(
+                smoothPath(through: points),
+                with: .color(seriesColor(for: taskID)),
+                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+            )
+        }
+    }
+
+    private func smoothPath(through points: [CGPoint]) -> Path {
+        var path = Path()
+        guard let first = points.first else { return path }
+        path.move(to: first)
+        guard points.count > 1 else { return path }
+        for index in 0..<(points.count - 1) {
+            let previous = points[max(0, index - 1)]
+            let current = points[index]
+            let next = points[index + 1]
+            let following = points[min(points.count - 1, index + 2)]
+            let firstControl = CGPoint(
+                x: current.x + (next.x - previous.x) / 6,
+                y: current.y + (next.y - previous.y) / 6
+            )
+            let secondControl = CGPoint(
+                x: next.x - (following.x - current.x) / 6,
+                y: next.y - (following.y - current.y) / 6
+            )
+            path.addCurve(to: next, control1: firstControl, control2: secondControl)
+        }
+        return path
+    }
+
+    private func seriesColor(for taskID: String) -> Color {
+        let palette: [Color] = [.blue, .green, .orange, .purple, .cyan, .pink]
+        let index = taskID.utf8.reduce(0) { partial, byte in
+            (partial &* 31 &+ Int(byte)) % palette.count
+        }
+        return palette[index]
     }
 }
 

@@ -51,7 +51,7 @@ One AppKit-owned application lifecycle manages the status item, popover, Setting
 
 `CodexAppServerClient` keeps a newline-delimited JSON-RPC subprocess connection to the installed helper. Account identity and aggregate activity update at connection and every 15 minutes; allowance polling uses the selected 1, 5, 15, 30, 60, or 120-second cadence. Allowance-change notifications coalesce into an allowance-only refresh.
 
-`LocalSessionMonitor` uses FSEvents plus a three-second safety check. It incrementally tails bounded JSONL records, watches writer locks, folds linked agents into root tasks, and retains all live tasks plus up to 200 recent root tasks from the prior 24 hours. The popover shows four recent tasks; the Dashboard starts with ten and reveals ten more per action.
+`LocalSessionMonitor` uses FSEvents plus a one-second bounded safety check for known live tasks. It incrementally tails bounded JSONL records, watches writer locks, rotates lightweight checks across inactive files, folds linked agents into root tasks, and retains all live tasks plus up to 200 recent root tasks from the prior 24 hours. The popover shows four recent tasks; the Dashboard starts with ten and reveals ten more per action.
 
 Provider protocols and an injectable clock keep account, local-session, notification, date-range, freshness, and pacing behavior testable.
 

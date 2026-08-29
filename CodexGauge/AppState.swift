@@ -31,6 +31,7 @@ final class AppState {
     private var accountActivity: AccountActivity = .empty
     private var snapshotPersistencePolicy = SnapshotPersistencePolicy()
     private var quotaNotificationEvaluationPolicy = QuotaNotificationEvaluationPolicy()
+    private var lastAttentionSignature: String?
 
     var accountSnapshot: AccountSnapshot?
     var conversations: [ConversationTelemetry] = []
@@ -276,8 +277,20 @@ final class AppState {
                     self.hasLoadedConversations = true
                     return changed
                 }
-                if changed,
-                   await MainActor.run(body: { self?.settings.attentionNotificationsEnabled == true }) {
+                let shouldEvaluateAttention = await MainActor.run { [weak self] in
+                    guard let self, changed, self.settings.attentionNotificationsEnabled else { return false }
+                    let signature = telemetry
+                        .filter { $0.state == .needsApproval || $0.state == .needsInput }
+                        .map {
+                            "\($0.id)|\($0.state.rawValue)|\($0.attentionEventAt?.timeIntervalSince1970 ?? -1)"
+                        }
+                        .sorted()
+                        .joined(separator: ";")
+                    guard signature != self.lastAttentionSignature else { return false }
+                    self.lastAttentionSignature = signature
+                    return true
+                }
+                if shouldEvaluateAttention {
                     await self?.notifications.evaluate(conversations: telemetry)
                 }
             }
@@ -351,6 +364,7 @@ final class AppState {
         sessionProvider = nil
         conversations = []
         hasLoadedConversations = false
+        lastAttentionSignature = nil
     }
 
     private func persistSnapshotIfNeeded(_ snapshot: AccountSnapshot) async {

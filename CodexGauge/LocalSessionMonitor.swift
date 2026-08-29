@@ -43,6 +43,8 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     private let sessionsURL: URL
     private let locksURL: URL
     private let clock: any ClockProviding
+    private let maintenanceInterval: Duration
+    private let watchesFilesystemEvents: Bool
     private var sessions: [String: Session] = [:]
     private var titles: [String: String] = [:]
     private var titleIndexModificationDate: Date?
@@ -54,7 +56,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     private var pendingFilesystemPaths = Set<String>()
     private var pendingParsingPaths = Set<String>()
     private var processingCursor = 0
-    private var lockedProcessingCursor = 0
+    private var liveProcessingCursor = 0
     private var maintenanceTick = 0
     private var snapshotPolicy = SemanticSnapshotPolicy<[ConversationTelemetry]>()
     private var requiresRescan = false
@@ -80,9 +82,16 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     private static let maximumLockEntriesPerPass = maximumLiveSessions
     private static let maximumLockProbesPerPass = maximumLiveSessions
 
-    init(codexHomeURL: URL, clock: any ClockProviding = SystemClock()) {
+    init(
+        codexHomeURL: URL,
+        clock: any ClockProviding = SystemClock(),
+        maintenanceInterval: Duration = .seconds(1),
+        watchesFilesystemEvents: Bool = true
+    ) {
         self.codexHomeURL = codexHomeURL
         self.clock = clock
+        self.maintenanceInterval = maintenanceInterval
+        self.watchesFilesystemEvents = watchesFilesystemEvents
         sessionsURL = codexHomeURL.appending(path: "sessions", directoryHint: .isDirectory)
         locksURL = codexHomeURL.appending(path: "thread-writer-locks", directoryHint: .isDirectory)
     }
@@ -119,7 +128,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         sessions.removeAll()
         snapshotPolicy.reset()
         processingCursor = 0
-        lockedProcessingCursor = 0
+        liveProcessingCursor = 0
         maintenanceTick = 0
         requiresRescan = false
         started = false
@@ -138,14 +147,17 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         PerformanceSignposts.end("Session discovery", discoverySignpost)
         emitSnapshot()
 
-        watcher = RecursiveFSEventsWatcher(paths: [sessionsURL.path, locksURL.path]) { [weak self] paths, rescan in
-            Task { await self?.queueFilesystemChanges(paths, requiresRescan: rescan) }
+        if watchesFilesystemEvents {
+            watcher = RecursiveFSEventsWatcher(paths: [sessionsURL.path, locksURL.path]) { [weak self] paths, rescan in
+                Task { await self?.queueFilesystemChanges(paths, requiresRescan: rescan) }
+            }
+            watcher?.start()
         }
-        watcher?.start()
 
+        let maintenanceInterval = self.maintenanceInterval
         maintenanceTask = Task { [weak self] in
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
+                try? await Task.sleep(for: maintenanceInterval)
                 guard !Task.isCancelled else { break }
                 await self?.performMaintenance()
             }
@@ -154,19 +166,41 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
 
     private func performMaintenance() {
         maintenanceTick += 1
-        loadTitles()
-        probeLocks()
+        // Token reports are discrete, but the rates are time-weighted. Keep
+        // publishing while a report can still contribute so visible rates decay
+        // smoothly during tool calls and other periods with no new token events.
+        var shouldEmitSnapshot = hasRateHistory(at: clock.now)
+        if maintenanceTick.isMultiple(of: 3) {
+            loadTitles()
+            probeLocks()
+            shouldEmitSnapshot = true
+        }
         if sessionsRootDescriptor < 0, prepareSessionsRoot() {
             discoverRecentSessions()
             processTrackedSessions()
+            shouldEmitSnapshot = true
         }
-        processPendingSessions()
-        processLockedSessions()
-        if maintenanceTick.isMultiple(of: 20) {
+        shouldEmitSnapshot = processPendingSessions() || shouldEmitSnapshot
+        shouldEmitSnapshot = processLiveSessions() || shouldEmitSnapshot
+        if maintenanceTick.isMultiple(of: 60) {
             processTrackedSessions(maximumFiles: 20)
+            shouldEmitSnapshot = true
         }
-        pruneOldSessions()
-        emitSnapshot()
+        if maintenanceTick.isMultiple(of: 3) { pruneOldSessions() }
+        if shouldEmitSnapshot { emitSnapshot() }
+    }
+
+    private func hasRateHistory(at now: Date) -> Bool {
+        let cutoff = now.addingTimeInterval(-300)
+        return sessions.values.contains { session in
+            switch effectiveState(for: session, now: now) {
+            case .running, .needsInput, .needsApproval:
+                break
+            case .idle, .recent:
+                return false
+            }
+            return session.pulses.contains { $0.timestamp >= cutoff && $0.timestamp <= now }
+        }
     }
 
     private func queueFilesystemChanges(_ paths: [String], requiresRescan: Bool) {
@@ -203,7 +237,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         }
         probeLocks()
         processPendingSessions()
-        processLockedSessions()
+        processLiveSessions()
         emitSnapshot()
     }
 
@@ -333,36 +367,49 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         }
     }
 
-    private func processLockedSessions() {
+    /// FSEvents remains the primary update path. This bounded pass prevents a
+    /// missed or coalesced event from making a known live task appear frozen.
+    @discardableResult
+    private func processLiveSessions() -> Bool {
+        let now = clock.now
         let paths = sessions.values
-            .filter { lockedIDs.contains($0.id) }
+            .filter {
+                if lockedIDs.contains($0.id) { return true }
+                switch effectiveState(for: $0, now: now) {
+                case .running, .needsInput, .needsApproval: return true
+                case .idle, .recent: return false
+                }
+            }
             .map(\.path)
             .sorted()
         guard !paths.isEmpty else {
-            lockedProcessingCursor = 0
-            return
+            liveProcessingCursor = 0
+            return false
         }
 
-        lockedProcessingCursor %= paths.count
+        liveProcessingCursor %= paths.count
         let signpost = PerformanceSignposts.begin("Session parsing")
         defer { PerformanceSignposts.end("Session parsing", signpost) }
         var processedFiles = 0
         var processedBytes = 0
         while processedFiles < paths.count,
               processedBytes < Self.maximumBytesPerPass {
-            let path = paths[lockedProcessingCursor]
+            let path = paths[liveProcessingCursor]
             let remaining = Self.maximumBytesPerPass - processedBytes
             processedBytes += process(
                 path: path,
-                byteBudget: min(Self.maximumBytesPerFile, remaining)
+                byteBudget: min(Self.maximumBytesPerFile, remaining),
+                prefersLatestData: true
             )
             processedFiles += 1
-            lockedProcessingCursor = (lockedProcessingCursor + 1) % paths.count
+            liveProcessingCursor = (liveProcessingCursor + 1) % paths.count
         }
+        return processedBytes > 0
     }
 
-    private func processPendingSessions() {
-        guard !pendingParsingPaths.isEmpty else { return }
+    @discardableResult
+    private func processPendingSessions() -> Bool {
+        guard !pendingParsingPaths.isEmpty else { return false }
         let signpost = PerformanceSignposts.begin("Session parsing")
         defer { PerformanceSignposts.end("Session parsing", signpost) }
         var remaining = Self.maximumBytesPerPass
@@ -373,6 +420,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                 pendingParsingPaths.remove(path)
             }
         }
+        return true
     }
 
     private func hasUnreadData(at path: String) -> Bool {
@@ -400,7 +448,11 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     }
 
     @discardableResult
-    private func process(path: String, byteBudget: Int) -> Int {
+    private func process(
+        path: String,
+        byteBudget: Int,
+        prefersLatestData: Bool = false
+    ) -> Int {
         guard var session = sessions[path], byteBudget > 0,
               let relativePath = relativeSessionPath(for: path),
               let descriptor = AnchoredFileAccess.openRegularFile(
@@ -476,6 +528,43 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                     session.offset = fileSize
                     parseLines(into: &session)
                 }
+                sessions[path] = session
+                return bytesRead
+            }
+
+            if prefersLatestData, fileSize - session.offset > maximumRead {
+                // A live rollout can grow by hundreds of megabytes while a tool is
+                // running. Replaying that stale backlog in bounded chunks makes the
+                // visible task state lag by tens of seconds. Keep the metadata and
+                // cumulative counters already decoded, but catch up from a bounded,
+                // record-aligned tail so the newest lifecycle and activity records
+                // reach the UI on the next maintenance pass.
+                let tailOffset = fileSize - maximumRead
+                var startsAtRecordBoundary = tailOffset == 0
+                if tailOffset > 0 {
+                    try handle.seek(toOffset: tailOffset - 1)
+                    startsAtRecordBoundary = try handle.read(upToCount: 1)?.first == 0x0A
+                }
+                try handle.seek(toOffset: tailOffset)
+                guard var tail = try handle.read(upToCount: Int(maximumRead)), !tail.isEmpty else {
+                    return 0
+                }
+                let bytesRead = tail.count
+                if !startsAtRecordBoundary {
+                    guard let firstNewline = tail.firstIndex(of: 0x0A) else {
+                        // The bounded tail is entirely inside one oversized record.
+                        // Advance past it; the next append will be decoded normally.
+                        session.offset = fileSize
+                        session.remainder.removeAll(keepingCapacity: false)
+                        sessions[path] = session
+                        return bytesRead
+                    }
+                    tail.removeSubrange(...firstNewline)
+                }
+                session.offset = fileSize
+                session.remainder.removeAll(keepingCapacity: true)
+                session.remainder.append(tail)
+                parseLines(into: &session)
                 sessions[path] = session
                 return bytesRead
             }
@@ -701,8 +790,16 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                 model: latest.model ?? root.model,
                 state: state,
                 activity: latest.activity,
-                tokensPerMinute: Double(minute.reduce(Int64(0)) { $0.addingWithoutOverflow($1.usage.total) }),
-                tokensPerFiveMinutes: Double(fiveMinutes.reduce(Int64(0)) { $0.addingWithoutOverflow($1.usage.total) }) / 5,
+                tokensPerMinute: Self.timeWeightedRate(
+                    samples: minute.map { ($0.timestamp, $0.usage.total) },
+                    now: now,
+                    window: 60
+                ),
+                tokensPerFiveMinutes: Self.timeWeightedRate(
+                    samples: fiveMinutes.map { ($0.timestamp, $0.usage.total) },
+                    now: now,
+                    window: 300
+                ),
                 callsPerMinute: provenCalls > 0 ? Double(provenCalls) : nil,
                 totalTokens: folded.reduce(Int64(0)) { $0.addingWithoutOverflow($1.totalTokens) },
                 recentTokenMix: mix,
@@ -732,6 +829,28 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         guard snapshotPolicy.shouldPublish(snapshot) else { return }
         PerformanceSignposts.event("Session snapshot published")
         continuation?.yield(snapshot)
+    }
+
+    /// Codex writes token usage in batches rather than as individual tokens. A
+    /// strict rectangular window makes a batch appear frozen and then disappear
+    /// all at once. Preserve the exact rolling-window total while reports arrive,
+    /// then taper that total during an idle interval so the displayed rate reflects
+    /// each elapsed second without inventing additional token usage.
+    nonisolated static func timeWeightedRate(
+        samples: [(timestamp: Date, tokens: Int64)],
+        now: Date,
+        window: TimeInterval
+    ) -> Double {
+        guard window.isFinite, window > 0 else { return 0 }
+        let recent = samples.filter {
+            let age = now.timeIntervalSince($0.timestamp)
+            return age >= 0 && age <= window && $0.tokens > 0
+        }
+        guard let newest = recent.map(\.timestamp).max() else { return 0 }
+        let total = recent.reduce(Int64(0)) { $0.addingWithoutOverflow($1.tokens) }
+        let idleDuration = max(0, now.timeIntervalSince(newest))
+        let idleWeight = max(0, min(1, 1 - idleDuration / window))
+        return Double(total) * (60 / window) * idleWeight
     }
 
     private func effectiveState(for session: Session, now: Date) -> ConversationState {

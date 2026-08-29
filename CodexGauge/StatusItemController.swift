@@ -3,6 +3,45 @@ import Observation
 import SwiftUI
 
 @MainActor
+enum StatusItemSymbolRenderer {
+    static let configuration = NSImage.SymbolConfiguration(
+        pointSize: 13,
+        weight: .medium,
+        scale: .medium
+    )
+
+    static func image(named symbolName: String, color: NSColor?) -> NSImage? {
+        guard let source = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
+            return nil
+        }
+        let symbolConfiguration = color.map {
+            configuration.applying(.init(hierarchicalColor: $0))
+        } ?? configuration
+        guard let symbol = source.withSymbolConfiguration(symbolConfiguration) else { return nil }
+
+        // NSStatusBarButton centers an image's complete bounds beside its title.
+        // Give the symbol two transparent points below its artwork so the visible
+        // glyph moves up one point: its bottom meets the text while its slightly
+        // greater height extends above it. Drawing into a real image is deliberate;
+        // NSButtonCell does not consistently honor a symbol's custom alignmentRect.
+        let image = NSImage(
+            size: NSSize(width: symbol.size.width, height: symbol.size.height + 2),
+            flipped: false
+        ) { _ in
+            symbol.draw(
+                in: NSRect(origin: NSPoint(x: 0, y: 2), size: symbol.size),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+            return true
+        }
+        image.isTemplate = color == nil
+        return image
+    }
+}
+
+@MainActor
 final class StatusItemController: NSObject, NSPopoverDelegate {
     private let state: AppState
     private let statusItem: NSStatusItem
@@ -21,6 +60,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var keyMonitor: Any?
     private var expandedDisclosureCount = 0
     private var popoverClock: VisibleSurfaceClock?
+    private var statusUpdateTimer: Timer?
 
     init(state: AppState) {
         self.state = state
@@ -43,6 +83,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
         updateStatusItem()
         observeState()
+        installSystemTimeObservers()
         installMainMenu()
         installKeyboardShortcuts()
     }
@@ -129,7 +170,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     @objc private func showSettings() {
-        settingsWindow.show()
+        if popover.isShown {
+            popover.performClose(nil)
+        }
+        // Menu and popover tracking can otherwise reclaim key status after the
+        // Settings window is ordered forward. Present on the next run-loop turn.
+        DispatchQueue.main.async { [weak self] in
+            self?.settingsWindow.show()
+        }
     }
 
     @objc private func showDashboard() {
@@ -267,9 +315,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func observeState() {
         withObservationTracking {
-            _ = state.menuBarTitle
-            _ = state.menuBarSymbol
-            _ = state.menuBarAccessibilityLabel
+            _ = state.accountSnapshot
+            _ = state.freshness
+            _ = state.settings.refreshInterval
+            _ = state.settings.menuBarConfiguration
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.updateStatusItem()
@@ -280,12 +329,113 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func updateStatusItem() {
         guard let button = statusItem.button else { return }
-        let image = NSImage(systemSymbolName: state.menuBarSymbol, accessibilityDescription: nil)
-        image?.isTemplate = true
-        button.image = image
-        button.title = " \(state.menuBarTitle)"
-        button.toolTip = state.menuBarAccessibilityLabel
-        button.setAccessibilityLabel(state.menuBarAccessibilityLabel)
+        let now = Date.now
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: state.accountSnapshot,
+            freshness: state.displayFreshness,
+            configuration: state.settings.menuBarConfiguration,
+            now: now
+        )
+
+        if let symbolName = presentation.symbolName {
+            let color = renderedStatusColor(presentation.symbolSeverity, for: button)
+            let image = StatusItemSymbolRenderer.image(named: symbolName, color: color)
+            button.image = image
+            button.imageScaling = .scaleProportionallyDown
+            button.contentTintColor = nil
+        } else {
+            button.image = nil
+            button.contentTintColor = nil
+        }
+
+        let displaySegments = presentation.displaySegments
+        let hasColoredText = displaySegments.contains { $0.severity != .neutral }
+        if hasColoredText {
+            let title = NSMutableAttributedString()
+            for segment in displaySegments {
+                let font: NSFont = segment.usesMonospacedDigits
+                    ? .monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular)
+                    : .menuBarFont(ofSize: NSFont.systemFontSize)
+                var attributes: [NSAttributedString.Key: Any] = [.font: font]
+                if let color = renderedStatusColor(segment.severity, for: button) {
+                    attributes[.foregroundColor] = color
+                }
+                title.append(NSAttributedString(string: segment.text, attributes: attributes))
+            }
+            button.title = ""
+            button.attributedTitle = title
+        } else {
+            // A plain NSStatusBarButton title automatically follows the menu
+            // bar's contrast treatment, including wallpaper tint and highlight.
+            button.attributedTitle = NSAttributedString()
+            button.font = .monospacedDigitSystemFont(
+                ofSize: NSFont.systemFontSize,
+                weight: .regular
+            )
+            button.title = presentation.plainText
+        }
+        button.imagePosition = presentation.symbolName == nil ? .noImage : displaySegments.isEmpty ? .imageOnly : .imageLeading
+        statusItem.length = NSStatusItem.variableLength
+        button.toolTip = presentation.tooltip
+        button.setAccessibilityLabel(presentation.accessibilityLabel)
+        scheduleStatusUpdate(at: presentation.nextUpdateAt, now: now)
+    }
+
+    private func scheduleStatusUpdate(at date: Date?, now: Date) {
+        statusUpdateTimer?.invalidate()
+        statusUpdateTimer = nil
+        guard let date, date > now else { return }
+        let timer = Timer(fire: date, interval: 0, repeats: false) { [weak self] _ in
+            Task { @MainActor in self?.updateStatusItem() }
+        }
+        timer.tolerance = min(5, max(0.1, date.timeIntervalSince(now) * 0.02))
+        RunLoop.main.add(timer, forMode: .common)
+        statusUpdateTimer = timer
+    }
+
+    private func statusColor(_ severity: MenuBarSeverity) -> NSColor? {
+        switch severity {
+        case .neutral: nil
+        case .normal: .systemGreen
+        case .caution: .systemYellow
+        case .critical: .systemRed
+        }
+    }
+
+    private func renderedStatusColor(_ severity: MenuBarSeverity, for _: NSStatusBarButton) -> NSColor? {
+        guard let color = statusColor(severity) else { return nil }
+        return color.usingColorSpace(.deviceRGB) ?? color
+    }
+
+    private func installSystemTimeObservers() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(systemTimeDidChange),
+            name: .NSSystemClockDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(systemTimeDidChange),
+            name: .NSSystemTimeZoneDidChange,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(systemTimeDidChange),
+            name: .NSCalendarDayChanged,
+            object: nil
+        )
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(systemTimeDidChange),
+            name: NSWorkspace.didWakeNotification,
+            object: nil
+        )
+    }
+
+    @objc private func systemTimeDidChange() {
+        updateStatusItem()
     }
 
     private var preferredPopoverHeight: CGFloat {
@@ -303,6 +453,13 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             height += 60
         }
         if hasActivity { height += 46 }
+        let menuBarPresentation = MenuBarPresentationBuilder.make(
+            snapshot: state.accountSnapshot,
+            freshness: state.displayFreshness,
+            configuration: state.settings.menuBarConfiguration,
+            now: .now
+        )
+        if menuBarPresentation.statusNotice != nil { height += 58 }
         height += CGFloat(expandedDisclosureCount) * 116
         let screen = statusItem.button?.window?.screen ?? NSScreen.main
         let screenLimit = max(330, (screen?.visibleFrame.height ?? 700) - 48)

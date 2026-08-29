@@ -78,28 +78,6 @@ final class AppState {
         return clock.now.timeIntervalSince(fetchedAt) > maximumAge ? .stale : .fresh
     }
 
-    var menuBarTitle: String {
-        guard let remainingPercent else { return "—" }
-        return "\(remainingPercent)%"
-    }
-
-    var menuBarSymbol: String {
-        switch displayFreshness {
-        case .loading: "gauge.with.needle"
-        case .fresh: "gauge.with.needle"
-        case .stale: "exclamationmark.triangle.fill"
-        case .unavailable: "questionmark.circle"
-        }
-    }
-
-    var menuBarAccessibilityLabel: String {
-        guard let remainingPercent, let window = accountSnapshot?.limitingWindow else {
-            return "Codex allowances unavailable"
-        }
-        let state = displayFreshness == .stale ? ", data is stale" : ""
-        return "Codex \(window.durationName.lowercased()) allowance, \(remainingPercent) percent remaining\(state)"
-    }
-
     func bootstrap() async {
         if let cached = await cache.load() {
             accountSnapshot = cached

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import CoreServices
 import Darwin
@@ -25,6 +26,32 @@ private func testHostHasTeamSignature() -> Bool {
 }
 
 struct CodexGaugeTests {
+    @MainActor
+    @Test func statusItemSymbolsUseBoundedAlignedGeometry() throws {
+        let gauge = try #require(
+            StatusItemSymbolRenderer.image(named: "gauge.with.dots.needle.33percent", color: nil)
+        )
+        let warning = try #require(
+            StatusItemSymbolRenderer.image(named: "exclamationmark.triangle.fill", color: .systemRed)
+        )
+        let unalignedGauge = try #require(
+            NSImage(systemSymbolName: "gauge.with.dots.needle.33percent", accessibilityDescription: nil)?
+                .withSymbolConfiguration(StatusItemSymbolRenderer.configuration)
+        )
+
+        for image in [gauge, warning] {
+            #expect(image.size.width >= 15)
+            #expect(image.size.width <= 17)
+            #expect(image.size.height >= 17)
+            #expect(image.size.height <= 19)
+        }
+
+        #expect(gauge.isTemplate)
+        #expect(!warning.isTemplate)
+        #expect(abs(gauge.size.width - warning.size.width) < 0.5)
+        #expect(gauge.size.height == unalignedGauge.size.height + 2)
+    }
+
     @MainActor
     @Test func allowanceAlertsStartOffWithPracticalPresets() {
         let suite = "CodexGaugeTests.\(UUID().uuidString)"
@@ -80,6 +107,596 @@ struct CodexGaugeTests {
         let settings = SettingsStore(defaults: defaults)
 
         #expect(settings.notificationThresholds == [99, 5, 1])
+    }
+
+    @MainActor
+    @Test func menuBarPreferencesDefaultPersistAndRestoreWithoutChangingExistingSettings() {
+        let suite = "CodexGaugeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.menuBarConfiguration == .default)
+        var customized = settings.menuBarConfiguration
+        customized.showsGauge = false
+        customized.primaryAllowance = .lowestOverall
+        customized.secondaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+        customized.resetDisplay = .timeRemaining
+        customized.showsSuggestedPace = true
+        customized.colorMode = .trafficLight
+        customized.colorBasis = .usagePace
+        customized.colorTarget = .gaugeAndValues
+        settings.menuBarConfiguration = customized
+
+        let reloaded = SettingsStore(defaults: defaults)
+        #expect(reloaded.menuBarConfiguration == customized.normalized)
+        reloaded.restoreMenuBarDefaults()
+        #expect(reloaded.menuBarConfiguration == .default)
+    }
+
+    @MainActor
+    @Test func menuBarConfigurationCannotPersistAnInvisibleStatusItem() {
+        let suite = "CodexGaugeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = SettingsStore(defaults: defaults)
+        var hidden = settings.menuBarConfiguration
+        hidden.showsGauge = false
+        hidden.showsPercentage = false
+        hidden.resetDisplay = .hidden
+        hidden.showsSuggestedPace = false
+
+        settings.menuBarConfiguration = hidden
+
+        #expect(settings.menuBarConfiguration.showsGauge)
+        #expect(settings.menuBarConfiguration.hasVisibleContent)
+    }
+
+    @MainActor
+    @Test func invalidPersistedMenuBarConfigurationFallsBackToDefaults() {
+        let suite = "CodexGaugeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Data("not-json".utf8), forKey: "menuBarConfiguration")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.menuBarConfiguration == .default)
+    }
+
+    @Test func menuBarAllowanceResolutionSupportsCanonicalOverallAndSpecificWindows() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let snapshot = menuBarSnapshot(now: now)
+
+        #expect(AllowanceResolver.resolve(.limitingCodex, in: snapshot)?.window.id == "codex-secondary")
+        #expect(AllowanceResolver.resolve(.lowestOverall, in: snapshot)?.window.id == "spark-primary")
+        #expect(AllowanceResolver.resolve(
+            .specific(bucketID: "codex", windowID: "codex-primary"),
+            in: snapshot
+        )?.window.durationMinutes == 300)
+        #expect(AllowanceResolver.options(in: snapshot).map(\.title).contains("Codex · 5-hour"))
+    }
+
+    @Test func defaultMenuBarPresentationRemainsMonochromeGaugeAndLimitingCodexPercentage() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: .default,
+            now: now
+        )
+
+        #expect(presentation.symbolName == "gauge.with.needle")
+        #expect(presentation.symbolSeverity == .neutral)
+        #expect(presentation.plainText == "28%")
+        #expect(presentation.segments.allSatisfy { $0.severity == .neutral })
+        #expect(presentation.nextUpdateAt == nil)
+    }
+
+    @Test func menuBarPresentationSupportsEveryVisibleContentCombinationAndUnavailableState() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let snapshot = menuBarSnapshot(now: now)
+
+        var iconOnly = MenuBarConfiguration.default
+        iconOnly.showsPercentage = false
+        let iconPresentation = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: iconOnly,
+            now: now
+        )
+        #expect(iconPresentation.symbolName == "gauge.with.needle")
+        #expect(iconPresentation.plainText.isEmpty)
+
+        var percentageOnly = MenuBarConfiguration.default
+        percentageOnly.showsGauge = false
+        let percentagePresentation = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: percentageOnly,
+            now: now
+        )
+        #expect(percentagePresentation.symbolName == nil)
+        #expect(percentagePresentation.plainText == "28%")
+
+        var resetOnly = MenuBarConfiguration.default
+        resetOnly.showsGauge = false
+        resetOnly.showsPercentage = false
+        resetOnly.resetDisplay = .timeRemaining
+        let resetPresentation = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: resetOnly,
+            now: now
+        )
+        #expect(resetPresentation.symbolName == nil)
+        #expect(resetPresentation.plainText == "2d 18h")
+
+        var paceOnly = MenuBarConfiguration.default
+        paceOnly.showsGauge = false
+        paceOnly.showsPercentage = false
+        paceOnly.showsSuggestedPace = true
+        let pacePresentation = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: paceOnly,
+            now: now,
+            locale: Locale(identifier: "en_US")
+        )
+        #expect(pacePresentation.symbolName == nil)
+        #expect(pacePresentation.plainText == "≈10%/day")
+        #expect(pacePresentation.tooltip.contains("percentage points"))
+        #expect(pacePresentation.tooltip.contains("10.1"))
+
+        let unavailablePresentation = MenuBarPresentationBuilder.make(
+            snapshot: nil,
+            freshness: .unavailable,
+            configuration: .default,
+            now: now
+        )
+        #expect(unavailablePresentation.symbolName == "questionmark.circle")
+        #expect(unavailablePresentation.plainText == "—")
+        #expect(unavailablePresentation.accessibilityLabel.contains("unavailable"))
+
+        let stalePresentation = MenuBarPresentationBuilder.make(
+            snapshot: nil,
+            freshness: .stale,
+            configuration: .default,
+            now: now
+        )
+        #expect(stalePresentation.symbolName == "exclamationmark.triangle.fill")
+        #expect(stalePresentation.accessibilityLabel.contains("out of date"))
+    }
+
+    @Test func missingSpecificAllowanceFallsBackWithoutLosingItsUnavailableState() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "missing", windowID: "missing-primary")
+        configuration.secondaryAllowance = .specific(bucketID: "also-missing", windowID: "missing-secondary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now,
+            locale: Locale(identifier: "en_US"),
+            timeZone: TimeZone(secondsFromGMT: 0)!
+        )
+
+        #expect(presentation.primarySelectionUnavailable)
+        #expect(presentation.secondarySelectionUnavailable)
+        #expect(presentation.plainText == "28%")
+    }
+
+    @Test func primaryAndSecondaryAllowancesProduceAnUnambiguousCompactLabel() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+        configuration.secondaryAllowance = .specific(bucketID: "codex", windowID: "codex-secondary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.plainText == "5h 62% · 1w 28%")
+        #expect(presentation.tooltip.components(separatedBy: "Resets").count - 1 == 1)
+    }
+
+    @Test func allowancesFromDifferentBucketsIncludeTheirNames() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+        configuration.secondaryAllowance = .specific(bucketID: "codex-spark", windowID: "spark-primary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.plainText == "Codex 5h 62% · Codex Spark 1d 5%")
+    }
+
+    @Test func duplicateResolvedSecondaryAllowanceIsSuppressed() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .limitingCodex
+        configuration.secondaryAllowance = .specific(bucketID: "codex", windowID: "codex-secondary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.plainText == "28%")
+    }
+
+    @Test func hiddenPercentagesAlsoSuppressTheAdditionalAllowanceFromStatusAndColor() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.showsPercentage = false
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+        configuration.secondaryAllowance = .specific(bucketID: "codex-spark", windowID: "spark-primary")
+        configuration.colorMode = .warningsOnly
+        configuration.colorBasis = .remainingAllowance
+        configuration.colorTarget = .gaugeOnly
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.symbolName == "gauge.with.needle")
+        #expect(presentation.symbolSeverity == .neutral)
+        #expect(presentation.plainText.isEmpty)
+        #expect(!presentation.tooltip.contains("Codex Spark"))
+    }
+
+    @Test func unavailableSuggestedPaceCannotCreateAnInvisibleStatusItem() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.showsGauge = false
+        configuration.showsPercentage = false
+        configuration.showsSuggestedPace = true
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.symbolName == "gauge.with.needle")
+        #expect(presentation.segments.isEmpty)
+    }
+
+    @Test func resetCountdownUsesStableCompactBoundaries() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now.addingTimeInterval(6 * 86_400 + 5 * 3_600), now: now) == "6d 5h")
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now.addingTimeInterval(5 * 3_600 + 18 * 60), now: now) == "5h 18m")
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now.addingTimeInterval(42 * 60), now: now) == "42m")
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now.addingTimeInterval(42), now: now) == "<1m")
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now, now: now) == "Now")
+    }
+
+    @Test func menuBarPresentationNeverLeavesAnOrphanedDivider() {
+        let presentation = MenuBarPresentation(
+            symbolName: "gauge.with.needle",
+            symbolSeverity: .normal,
+            segments: [
+                MenuBarTextSegment(text: "99%", severity: .normal, usesMonospacedDigits: true),
+                MenuBarTextSegment(text: " · ", severity: .neutral, usesMonospacedDigits: false)
+            ],
+            tooltip: "Test",
+            accessibilityLabel: "Test",
+            nextUpdateAt: nil,
+            primarySelectionUnavailable: false,
+            secondarySelectionUnavailable: false,
+            statusNotice: nil
+        )
+
+        #expect(presentation.plainText == "99%")
+        #expect(presentation.displaySegments.count == 1)
+    }
+
+    @Test func absoluteResetPresentationUsesTheSelectedTimeZoneAcrossADaylightSavingBoundary() {
+        let reset = ISO8601DateFormatter().date(from: "2026-11-01T05:30:00Z")!
+        let now = reset.addingTimeInterval(-2 * 86_400)
+        let window = QuotaWindow(
+            id: "codex-secondary",
+            kind: "Secondary",
+            usedPercent: 20,
+            durationMinutes: 10_080,
+            resetsAt: reset
+        )
+        let snapshot = singleWindowSnapshot(window: window, now: now)
+        var configuration = MenuBarConfiguration.default
+        configuration.resetDisplay = .timeRemainingAndResetTime
+        let locale = Locale(identifier: "en_US")
+
+        let newYork = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: configuration,
+            now: now,
+            locale: locale,
+            timeZone: TimeZone(identifier: "America/New_York")!
+        )
+        let utc = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: configuration,
+            now: now,
+            locale: locale,
+            timeZone: TimeZone(secondsFromGMT: 0)!
+        )
+
+        let newYorkText = newYork.plainText.replacingOccurrences(of: "\u{202F}", with: " ")
+        let utcText = utc.plainText.replacingOccurrences(of: "\u{202F}", with: " ")
+        #expect(newYorkText.contains("1:30 AM"))
+        #expect(utcText.contains("5:30 AM"))
+        #expect(newYork.plainText.hasPrefix("80% · 2d 0h"))
+        #expect(newYork.nextUpdateAt != nil)
+    }
+
+    @Test func suggestedPaceUsesExactRemainingTimeAndSwitchesToHoursOnTheFinalDay() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let daily = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 16,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(6 * 86_400 + 5 * 3_600)
+        )
+        let hourly = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 16,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(12 * 3_600)
+        )
+
+        let dailyPace = MenuBarPresentationBuilder.suggestedPace(for: daily, now: now, isFresh: true)
+        let hourlyPace = MenuBarPresentationBuilder.suggestedPace(for: hourly, now: now, isFresh: true)
+        #expect(dailyPace?.unit == .day)
+        #expect(abs((dailyPace?.percentagePoints ?? 0) - (84 / (6 + 5.0 / 24))) < 0.001)
+        #expect(dailyPace?.compactText(style: .usageRate) == "≈14%/day")
+        #expect(dailyPace?.compactText(style: .remainingTarget) == "Target 86%")
+        #expect(hourlyPace?.unit == .hour)
+        #expect(hourlyPace?.percentagePoints == 7)
+        #expect(hourlyPace?.compactText(style: .remainingTarget) == "Target 7%")
+        #expect(MenuBarPresentationBuilder.suggestedPace(
+            for: QuotaWindow(id: "short", kind: "Primary", usedPercent: 10, durationMinutes: 300, resetsAt: now.addingTimeInterval(3_600)),
+            now: now,
+            isFresh: true
+        ) == nil)
+        #expect(MenuBarPresentationBuilder.suggestedPace(for: daily, now: now, isFresh: false) == nil)
+    }
+
+    @Test func remainingTargetPresentationUsesTheCurrentAllowanceDayBoundary() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let window = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 16,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(6 * 86_400 + 5 * 3_600)
+        )
+        var configuration = MenuBarConfiguration.default
+        configuration.showsSuggestedPace = true
+        configuration.suggestedPaceDisplay = .remainingTarget
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: singleWindowSnapshot(window: window, now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now,
+            locale: Locale(identifier: "en_US")
+        )
+
+        #expect(presentation.plainText == "84% · Target 86%")
+        #expect(presentation.tooltip.contains("finish this allowance day"))
+        #expect(presentation.nextUpdateAt?.timeIntervalSince(now) ?? 0 > 5 * 3_600)
+        #expect(presentation.nextUpdateAt?.timeIntervalSince(now) ?? .infinity < 5 * 3_600 + 1)
+    }
+
+    @Test func menuBarConfigurationDecodesOlderPreferencesAndRepairsUnavailableColorTargets() throws {
+        let oldJSON = Data(#"{"showsGauge":false,"showsPercentage":true,"primaryAllowance":{"limitingCodex":{}},"resetDisplay":"hidden","showsSuggestedPace":false,"colorMode":"trafficLight","colorBasis":"combined","colorTarget":"gaugeOnly"}"#.utf8)
+        let decoded = try JSONDecoder().decode(MenuBarConfiguration.self, from: oldJSON)
+
+        #expect(decoded.suggestedPaceDisplay == .usageRate)
+        #expect(decoded.normalized.colorTarget == .valuesOnly)
+
+        var gaugeOnly = MenuBarConfiguration.default
+        gaugeOnly.showsPercentage = false
+        gaugeOnly.colorTarget = .valuesOnly
+        #expect(gaugeOnly.normalized.colorTarget == .gaugeOnly)
+    }
+
+    @Test func menuBarSeverityUsesBuiltInRemainingAndPacingRules() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        func window(used: Int, resetAfter: TimeInterval = 3_000) -> QuotaWindow {
+            QuotaWindow(id: "test", kind: "Primary", usedPercent: used, durationMinutes: 100, resetsAt: now.addingTimeInterval(resetAfter))
+        }
+
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 79), basis: .remainingAllowance, now: now, isFresh: true) == .normal)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 80), basis: .remainingAllowance, now: now, isFresh: true) == .caution)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 90), basis: .remainingAllowance, now: now, isFresh: true) == .critical)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 45), basis: .usagePace, now: now, isFresh: true) == .caution)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 51), basis: .usagePace, now: now, isFresh: true) == .critical)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 80), basis: .combined, now: now, isFresh: false) == .neutral)
+    }
+
+    @Test func pacingDoesNotWarnFromCoarseDataImmediatelyAfterAReset() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let earlyWeeklyWindow = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 1,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(6 * 86_400 + 22 * 3_600)
+        )
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "weekly")
+        configuration.resetDisplay = .timeRemaining
+        configuration.colorMode = .warningsOnly
+        configuration.colorBasis = .combined
+        configuration.colorTarget = .gaugeAndValues
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: singleWindowSnapshot(window: earlyWeeklyWindow, now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(earlyWeeklyWindow.pacing(now: now) == nil)
+        #expect(presentation.symbolName == "gauge.with.needle")
+        #expect(presentation.symbolSeverity == .neutral)
+        #expect(presentation.statusNotice == nil)
+        #expect(presentation.plainText == "99% · 6d 22h")
+    }
+
+    @Test func genuineMenuBarWarningIncludesAPopoverExplanation() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let weeklyWindow = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 72,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(240_000)
+        )
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "weekly")
+        configuration.colorMode = .warningsOnly
+        configuration.colorBasis = .combined
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: singleWindowSnapshot(window: weeklyWindow, now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.statusNotice?.severity == .critical)
+        #expect(presentation.statusNotice?.title == "Usage may exceed this allowance")
+        #expect(presentation.statusNotice?.detail.contains("Codex weekly allowance") == true)
+    }
+
+    @Test func stalePresentationSuppressesPaceAndOverridesConfiguredColors() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-secondary")
+        configuration.showsSuggestedPace = true
+        configuration.colorMode = .trafficLight
+        configuration.colorTarget = .gaugeAndValues
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .stale,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.symbolName == "exclamationmark.triangle.fill")
+        #expect(presentation.symbolSeverity == .neutral)
+        #expect(!presentation.plainText.contains("/day"))
+        #expect(presentation.segments.allSatisfy { $0.severity == .neutral })
+        #expect(presentation.accessibilityLabel.contains("out of date"))
+    }
+
+    @Test func warningsOnlyAndTrafficLightModesApplyTheirConfiguredTargets() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let window = QuotaWindow(
+            id: "codex-primary",
+            kind: "Primary",
+            usedPercent: 5,
+            durationMinutes: 300,
+            resetsAt: now.addingTimeInterval(4 * 3_600)
+        )
+        let snapshot = singleWindowSnapshot(window: window, now: now)
+        var configuration = MenuBarConfiguration.default
+        configuration.colorBasis = .remainingAllowance
+        configuration.colorMode = .warningsOnly
+        configuration.colorTarget = .gaugeAndValues
+
+        let warnings = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        #expect(warnings.symbolSeverity == .neutral)
+        #expect(warnings.segments.allSatisfy { $0.severity == .neutral })
+
+        configuration.colorMode = .trafficLight
+        let traffic = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        #expect(traffic.symbolSeverity == .normal)
+        #expect(traffic.segments.contains { $0.severity == .normal })
+    }
+
+    @Test func countdownPresentationSchedulesOnlyItsNextVisibleBoundary() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-secondary")
+        configuration.resetDisplay = .timeRemaining
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        let delay = presentation.nextUpdateAt?.timeIntervalSince(now)
+        #expect(delay != nil)
+        #expect((delay ?? 0) > 0)
+        #expect((delay ?? .infinity) <= 3_600.1)
+
+        configuration.resetDisplay = .resetDateAndTime
+        let staticPresentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        #expect(staticPresentation.nextUpdateAt == nil)
+    }
+
+    @Test func suggestedPaceNeverCreatesASubminuteUpdateLoop() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let window = QuotaWindow(
+            id: "codex-secondary",
+            kind: "Secondary",
+            usedPercent: 16,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(120)
+        )
+        var configuration = MenuBarConfiguration.default
+        configuration.showsSuggestedPace = true
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: singleWindowSnapshot(window: window, now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        let delay = presentation.nextUpdateAt?.timeIntervalSince(now)
+
+        #expect((delay ?? 0) >= 60)
+        #expect((delay ?? .infinity) <= 120.1)
     }
 
     @Test func remainingPercentageIsClamped() {
@@ -855,6 +1472,83 @@ struct CodexGaugeTests {
             spendControl: nil,
             spendControlReached: nil,
             reachedReason: nil
+        )
+    }
+
+    private func menuBarSnapshot(now: Date) -> AccountSnapshot {
+        AccountSnapshot(
+            accountType: "chatgpt",
+            plan: "pro",
+            buckets: [
+                QuotaBucket(
+                    id: "codex",
+                    name: "Codex",
+                    plan: "pro",
+                    windows: [
+                        QuotaWindow(
+                            id: "codex-primary",
+                            kind: "Primary",
+                            usedPercent: 38,
+                            durationMinutes: 300,
+                            resetsAt: now.addingTimeInterval(8_400)
+                        ),
+                        QuotaWindow(
+                            id: "codex-secondary",
+                            kind: "Secondary",
+                            usedPercent: 72,
+                            durationMinutes: 10_080,
+                            resetsAt: now.addingTimeInterval(240_000)
+                        )
+                    ],
+                    credits: nil,
+                    spendControl: nil,
+                    spendControlReached: false,
+                    reachedReason: nil
+                ),
+                QuotaBucket(
+                    id: "codex-spark",
+                    name: "Codex Spark",
+                    plan: "pro",
+                    windows: [
+                        QuotaWindow(
+                            id: "spark-primary",
+                            kind: "Primary",
+                            usedPercent: 95,
+                            durationMinutes: 1_440,
+                            resetsAt: now.addingTimeInterval(52_000)
+                        )
+                    ],
+                    credits: nil,
+                    spendControl: nil,
+                    spendControlReached: false,
+                    reachedReason: nil
+                )
+            ],
+            earnedResetCount: nil,
+            activity: .empty,
+            fetchedAt: now
+        )
+    }
+
+    private func singleWindowSnapshot(window: QuotaWindow, now: Date) -> AccountSnapshot {
+        AccountSnapshot(
+            accountType: "chatgpt",
+            plan: "pro",
+            buckets: [
+                QuotaBucket(
+                    id: "codex",
+                    name: "Codex",
+                    plan: "pro",
+                    windows: [window],
+                    credits: nil,
+                    spendControl: nil,
+                    spendControlReached: false,
+                    reachedReason: nil
+                )
+            ],
+            earnedResetCount: nil,
+            activity: .empty,
+            fetchedAt: now
         )
     }
 

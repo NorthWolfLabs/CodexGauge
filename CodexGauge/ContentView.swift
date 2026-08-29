@@ -89,6 +89,26 @@ struct ContentView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                if let notice = menuBarStatusNotice {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(notice.title)
+                                .font(.subheadline.weight(.semibold))
+                            Text(notice.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: notice.symbolName)
+                            .foregroundStyle(notice.severity == .critical ? .red : .orange)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("menu-bar-status-notice")
+                }
             } else {
                 ContentUnavailableView {
                     Label("Allowance data unavailable", systemImage: "gauge.with.needle")
@@ -104,6 +124,15 @@ struct ContentView: View {
             }
         }
         .padding(16)
+    }
+
+    private var menuBarStatusNotice: MenuBarStatusNotice? {
+        MenuBarPresentationBuilder.make(
+            snapshot: state.accountSnapshot,
+            freshness: state.displayFreshness,
+            configuration: state.settings.menuBarConfiguration,
+            now: clock.now
+        ).statusNotice
     }
 
     @ViewBuilder

@@ -4,11 +4,13 @@ import SwiftUI
 
 enum SettingsPane: String, CaseIterable {
     case general
+    case menuBar
     case notifications
 
     var title: String {
         switch self {
         case .general: "General"
+        case .menuBar: "Menu Bar"
         case .notifications: "Notifications"
         }
     }
@@ -16,6 +18,7 @@ enum SettingsPane: String, CaseIterable {
     var symbol: String {
         switch self {
         case .general: "gear"
+        case .menuBar: "menubar.rectangle"
         case .notifications: "bell"
         }
     }
@@ -49,7 +52,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
                 .codexGaugeWritingToolsDisabled()
         )
         let window = CodexGaugeWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 380),
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 430),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -84,13 +87,18 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
 
     func show() {
         Task { await state.refreshNotificationAuthorization() }
+        guard let window else { return }
+        window.toolbar?.selectedItemIdentifier = navigation.selection.toolbarIdentifier
+        window.makeKey()
+        window.orderFrontRegardless()
         NSApplication.shared.activate(ignoringOtherApps: true)
-        window?.toolbar?.selectedItemIdentifier = navigation.selection.toolbarIdentifier
-        showWindow(nil)
-        window?.makeKeyAndOrderFront(nil)
+        window.makeKeyAndOrderFront(nil)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            self.window?.toolbar?.selectedItemIdentifier = self.navigation.selection.toolbarIdentifier
+            guard let window = self.window else { return }
+            window.toolbar?.selectedItemIdentifier = self.navigation.selection.toolbarIdentifier
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
         }
         helpShortcut.enable()
     }

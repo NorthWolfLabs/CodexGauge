@@ -9,6 +9,9 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - Replaced cliff-edge token windows with time-weighted rates that decay every second during tool use and other pauses, without reporting new token usage.
 - Stabilized Activity range selection, made Today summaries range-appropriate, corrected short-range and popover chart geometry, and eliminated an unsupported Charts axis-label configuration.
 - Removed manual allowance refresh controls; allowance checks and connection recovery now happen automatically while live task activity continues independently.
+- Added native menu-bar customization for allowance selection, optional comparison values, reset timing, usage-amount or remaining-target pace estimates, and accessible semantic status colors.
+- Clarified dependent menu-bar settings, repaired invalid color-target combinations, restored native menu-bar contrast, confirmed destructive resets, and made Settings reliably take keyboard focus.
+- Prevented unreliable pacing alerts immediately after allowance resets, improved the status symbol’s menu-bar sizing, shortened color guidance, and added a clear explanation for genuine warnings at the top of the popover.
 
 ## [1.0.0] - 2026-08-24
 

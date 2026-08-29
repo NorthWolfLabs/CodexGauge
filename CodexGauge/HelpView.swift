@@ -3,6 +3,7 @@ import SwiftUI
 struct HelpView: View {
     private enum Topic: String, CaseIterable, Identifiable {
         case overview
+        case menuBar
         case conversations
         case privacy
         case troubleshooting
@@ -12,6 +13,7 @@ struct HelpView: View {
         var title: String {
             switch self {
             case .overview: "Overview"
+            case .menuBar: "Menu Bar"
             case .conversations: "Tasks"
             case .privacy: "Privacy"
             case .troubleshooting: "Fix a Problem"
@@ -21,6 +23,7 @@ struct HelpView: View {
         var systemImage: String {
             switch self {
             case .overview: "gauge.with.needle"
+            case .menuBar: "menubar.rectangle"
             case .conversations: "bubble.left.and.bubble.right"
             case .privacy: "hand.raised"
             case .troubleshooting: "wrench.and.screwdriver"
@@ -42,6 +45,7 @@ struct HelpView: View {
                 Group {
                     switch selection ?? .overview {
                     case .overview: overview
+                    case .menuBar: menuBar
                     case .conversations: conversations
                     case .privacy: privacy
                     case .troubleshooting: troubleshooting
@@ -61,10 +65,30 @@ struct HelpView: View {
             symbol: "gauge.with.needle",
             introduction: "CodexGauge keeps your Codex allowances and current work one click away in the menu bar."
         ) {
-            helpRow("Check allowances", symbol: "menubar.rectangle", detail: "The menu-bar percentage shows the Codex allowance with the least remaining capacity.")
+            helpRow("Check allowances", symbol: "menubar.rectangle", detail: "By default, the menu bar shows the Codex allowance with the least remaining capacity.")
+            helpRow("Customize the menu bar", symbol: "slider.horizontal.3", detail: "Settings includes a live preview and choices for content, timing, suggested pace, and optional status colors.")
             helpRow("Follow live tasks", symbol: "waveform", detail: "The popover shows tasks running on this Mac, including their current phase, recent token rate, and context use.")
             helpRow("Explore your activity", symbol: "chart.xyaxis.line", detail: "Open the Dashboard to compare activity periods and see more detail about live and recent tasks.")
-            callout("Click the menu-bar item to open the popover. Right-click it for app commands. Press Command–Question Mark (⌘?) to open Help.", symbol: "command")
+            callout("Suggested pace is a local estimate, not a separate daily allowance issued by OpenAI. If a selected allowance is temporarily unavailable, CodexGauge keeps your choice and uses the most constrained Codex allowance until it returns.", symbol: "info.circle")
+        }
+    }
+
+    private var menuBar: some View {
+        helpPage(
+            title: "Customize the menu bar",
+            symbol: "menubar.rectangle",
+            introduction: "Choose the information CodexGauge keeps visible without changing what appears in the popover or Dashboard."
+        ) {
+            helpRow("Gauge and percentage", symbol: "gauge.with.needle", detail: "Show either item or both. If turning one off would leave the normal menu-bar item empty, CodexGauge keeps the other item visible.")
+            helpRow("Main percentage", symbol: "percent", detail: "Lowest Codex Allowance chooses the Codex window with the least remaining. Lowest Allowance Overall also considers other returned allowance groups. A named choice follows that exact allowance and reset window.")
+            helpRow("Additional percentage", symbol: "plus.forwardslash.minus", detail: "Show one optional second percentage. CodexGauge hides a second choice that resolves to the same allowance as the main percentage.")
+            helpRow("Reset timing", symbol: "calendar.badge.clock", detail: "Show a compact countdown, a localized reset date, or both. Countdown text changes locally and does not make extra account requests.")
+            helpRow("Available per day or hour", symbol: "divide", detail: "Divides the percentage points currently remaining by the exact time until reset. During the final day, the estimate changes from a daily amount to an hourly amount.")
+            helpRow("Remaining target", symbol: "scope", detail: "Shows the percentage that would remain at the end of the current allowance day—or hour during the final day—if the full allowance were used evenly across its reset window.")
+            helpRow("Warnings Only", symbol: "exclamationmark.circle", detail: "Normal status stays monochrome. Yellow appears at 20% remaining or when projected usage reaches 90% of the allowance. Red appears at 10% remaining or when usage is projected to exhaust the allowance before reset. Pacing warnings wait until enough of a new window has elapsed for a meaningful estimate.")
+            helpRow("Traffic Light", symbol: "circle.grid.3x3.fill", detail: "Uses the same warning rules and also shows healthy status in green. When both amount and projected usage are selected, the more urgent status wins.")
+            helpRow("Color placement", symbol: "paintpalette", detail: "When both the gauge and values are visible, color can apply to either or both. If only one kind of item is visible, CodexGauge applies color there automatically. Open the popover to see the reason for any warning; symbols and VoiceOver descriptions also reinforce color.")
+            callout("Suggested pace and remaining targets are local estimates, not daily quotas issued by OpenAI. If a saved allowance temporarily disappears, CodexGauge keeps the choice and uses the lowest Codex allowance until it returns.", symbol: "info.circle")
         }
     }
 

@@ -272,13 +272,18 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
         statusItem.click()
 
-        var liveTask = app.descendants(matching: .any)["live-conversation-disclosure"].firstMatch
-        let activity = app.descendants(matching: .any)["popover-activity-disclosure"].firstMatch
+        let panel = app.descendants(matching: .any)["gauge-panel"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 3))
+        var liveTask = panel.descendants(matching: .any)["live-conversation-disclosure"].firstMatch
         XCTAssertTrue(liveTask.waitForExistence(timeout: 3))
-        XCTAssertTrue(activity.waitForExistence(timeout: 3))
         liveTask.click()
-        activity.click()
         XCTAssertEqual(liveTask.value as? String, "Expanded")
+
+        // Expanding the task reflows the popover. Resolve Activity from the new
+        // accessibility hierarchy so the click does not use its old geometry.
+        let activity = panel.descendants(matching: .any)["popover-activity-disclosure"].firstMatch
+        XCTAssertTrue(activity.waitForExistence(timeout: 3))
+        activity.click()
         XCTAssertEqual(activity.value as? String, "Expanded")
 
         statusItem.click()

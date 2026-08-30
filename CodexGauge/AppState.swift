@@ -9,6 +9,12 @@ enum RefreshBackoff {
     }
 }
 
+enum ConnectionRecoveryBackoff {
+    static func delay(forAttempt attempt: Int) -> TimeInterval {
+        min(120, max(15, RefreshBackoff.delay(forFailureCount: max(1, attempt))))
+    }
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -26,11 +32,13 @@ final class AppState {
     private var eventLoop: Task<Void, Never>?
     private var sessionLoop: Task<Void, Never>?
     private var eventRefreshTask: Task<Void, Never>?
+    private var connectionRecoveryTask: Task<Void, Never>?
     private var failureCount = 0
     private var accountIdentity: AccountIdentity?
     private var accountActivity: AccountActivity = .empty
     private var snapshotPersistencePolicy = SnapshotPersistencePolicy()
     private var quotaNotificationEvaluationPolicy = QuotaNotificationEvaluationPolicy()
+    private var lastAttentionSignature: String?
 
     var accountSnapshot: AccountSnapshot?
     var conversations: [ConversationTelemetry] = []
@@ -38,8 +46,7 @@ final class AppState {
     var freshness: DataFreshness = .loading
     var errorMessage: String?
     var executableURL: URL?
-    var isRefreshing = false
-    var lastRefreshAttempt: Date?
+    private var isRefreshing = false
     var notificationAuthorization: NotificationAuthorizationState = .notDetermined
     var executableValidationMessage: String?
 
@@ -71,28 +78,6 @@ final class AppState {
         return clock.now.timeIntervalSince(fetchedAt) > maximumAge ? .stale : .fresh
     }
 
-    var menuBarTitle: String {
-        guard let remainingPercent else { return "—" }
-        return "\(remainingPercent)%"
-    }
-
-    var menuBarSymbol: String {
-        switch displayFreshness {
-        case .loading: "gauge.with.needle"
-        case .fresh: "gauge.with.needle"
-        case .stale: "exclamationmark.triangle.fill"
-        case .unavailable: "questionmark.circle"
-        }
-    }
-
-    var menuBarAccessibilityLabel: String {
-        guard let remainingPercent, let window = accountSnapshot?.limitingWindow else {
-            return "Codex allowances unavailable"
-        }
-        let state = displayFreshness == .stale ? ", data is stale" : ""
-        return "Codex \(window.durationName.lowercased()) allowance, \(remainingPercent) percent remaining\(state)"
-    }
-
     func bootstrap() async {
         if let cached = await cache.load() {
             accountSnapshot = cached
@@ -104,19 +89,16 @@ final class AppState {
     }
 
     func reconnect() async {
+        connectionRecoveryTask?.cancel()
+        connectionRecoveryTask = nil
         await stopProviders()
         executableURL = nil
         await connect()
     }
 
-    func refresh() async {
-        await refreshLimits()
-    }
-
     private func refreshLimits() async {
         guard let accountProvider, !isRefreshing else { return }
         isRefreshing = true
-        lastRefreshAttempt = clock.now
         defer { isRefreshing = false }
         do {
             let limits = try await accountProvider.fetchRateLimits()
@@ -216,12 +198,16 @@ final class AppState {
         }
     }
 
-    private func connect() async {
-        guard let executable = await locator.locate(override: settings.executableOverride) else {
+    private func connect(scheduleRecovery: Bool = true) async {
+        guard !Task.isCancelled else { return }
+        let locatedExecutable = await locator.locate(override: settings.executableOverride)
+        guard !Task.isCancelled else { return }
+        guard let executable = locatedExecutable else {
             executableURL = nil
             hasLoadedConversations = true
             freshness = accountSnapshot == nil ? .unavailable : .stale
             errorMessage = CodexAppServerError.executableUnavailable.localizedDescription
+            if scheduleRecovery { startConnectionRecoveryLoop() }
             return
         }
         executableURL = executable
@@ -238,6 +224,22 @@ final class AppState {
         startLoops(account: account, sessions: sessions)
         await refreshIdentityAndActivity(using: account)
         await refreshLimits()
+    }
+
+    private func startConnectionRecoveryLoop() {
+        guard connectionRecoveryTask == nil else { return }
+        connectionRecoveryTask = Task { [weak self] in
+            var attempt = 1
+            while !Task.isCancelled {
+                let delay = ConnectionRecoveryBackoff.delay(forAttempt: attempt)
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled, let self else { break }
+                guard self.accountProvider == nil else { break }
+                await self.connect(scheduleRecovery: false)
+                guard self.accountProvider == nil else { break }
+                attempt += 1
+            }
+        }
     }
 
     private func startLoops(
@@ -276,8 +278,20 @@ final class AppState {
                     self.hasLoadedConversations = true
                     return changed
                 }
-                if changed,
-                   await MainActor.run(body: { self?.settings.attentionNotificationsEnabled == true }) {
+                let shouldEvaluateAttention = await MainActor.run { [weak self] in
+                    guard let self, changed, self.settings.attentionNotificationsEnabled else { return false }
+                    let signature = telemetry
+                        .filter { $0.state == .needsApproval || $0.state == .needsInput }
+                        .map {
+                            "\($0.id)|\($0.state.rawValue)|\($0.attentionEventAt?.timeIntervalSince1970 ?? -1)"
+                        }
+                        .sorted()
+                        .joined(separator: ";")
+                    guard signature != self.lastAttentionSignature else { return false }
+                    self.lastAttentionSignature = signature
+                    return true
+                }
+                if shouldEvaluateAttention {
                     await self?.notifications.evaluate(conversations: telemetry)
                 }
             }
@@ -300,7 +314,7 @@ final class AppState {
         if delay > 0 {
             try? await Task.sleep(for: .seconds(delay))
         }
-        await refresh()
+        await refreshLimits()
     }
 
     private func scheduleEventLimitRefresh() {
@@ -351,6 +365,7 @@ final class AppState {
         sessionProvider = nil
         conversations = []
         hasLoadedConversations = false
+        lastAttentionSignature = nil
     }
 
     private func persistSnapshotIfNeeded(_ snapshot: AccountSnapshot) async {

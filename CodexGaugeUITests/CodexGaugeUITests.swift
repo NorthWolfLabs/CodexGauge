@@ -67,6 +67,7 @@ final class CodexGaugeUITests: XCTestCase {
         statusItem.click()
         let panel = app.descendants(matching: .any).matching(identifier: "gauge-panel").firstMatch
         XCTAssertTrue(panel.waitForExistence(timeout: 3), "Left-click should present the telemetry popover")
+        XCTAssertFalse(app.buttons["Refresh allowances"].exists)
         capture("01-popover")
 
         let more = app.buttons["popover-more-button"].firstMatch
@@ -86,14 +87,21 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(activity.waitForExistence(timeout: 3))
         activity.click()
         XCTAssertEqual(activity.value as? String, "Expanded")
+        Thread.sleep(forTimeInterval: 0.25)
+        let panelScrollView = panel.scrollViews.firstMatch
+        XCTAssertTrue(panelScrollView.exists)
+        panelScrollView.swipeUp()
+        XCTAssertTrue(panel.descendants(matching: .any)["popover-activity-chart"].firstMatch.exists)
         capture("01b-popover-activity")
 
         statusItem.rightClick()
         XCTAssertTrue(app.menuItems["Quit CodexGauge"].waitForExistence(timeout: 3), "Right-click should present the native context menu")
+        XCTAssertFalse(app.menuItems["Refresh"].exists)
 
         statusItem.menuItems["Open Dashboard…"].click()
         let dashboard = app.windows["CodexGauge"]
         XCTAssertTrue(dashboard.waitForExistence(timeout: 3), "Dashboard should open in a full native window")
+        XCTAssertFalse(dashboard.buttons["Refresh allowances"].exists)
         capture("02-dashboard-overview")
 
         dashboard.staticTexts["Tasks"].firstMatch.click()
@@ -102,11 +110,33 @@ final class CodexGaugeUITests: XCTestCase {
 
         dashboard.staticTexts["Activity"].firstMatch.click()
         XCTAssertTrue(dashboard.staticTexts["Token activity"].waitForExistence(timeout: 3))
-        for range in ["Today", "30 Days", "7 Days", "1 Year", "7 Days"] {
+        let rangePicker = dashboard.descendants(matching: .any)["activity-range-picker"].firstMatch
+        XCTAssertTrue(rangePicker.waitForExistence(timeout: 2))
+        let pickerSize = rangePicker.frame.size
+        for range in ["Today", "30 Days", "7 Days", "1 Year", "All"] {
             let control = dashboard.descendants(matching: .any)[range].firstMatch
             XCTAssertTrue(control.waitForExistence(timeout: 2))
             control.click()
+            Thread.sleep(forTimeInterval: 0.25)
+            XCTAssertEqual(rangePicker.frame.width, pickerSize.width, accuracy: 1)
+            XCTAssertEqual(rangePicker.frame.height, pickerSize.height, accuracy: 1)
+            if range == "Today" {
+                XCTAssertFalse(dashboard.descendants(matching: .any)["activity-detail-chart"].firstMatch.exists)
+                XCTAssertFalse(dashboard.staticTexts["Active-day average"].exists)
+                XCTAssertFalse(dashboard.staticTexts["Busiest day"].exists)
+                capture("04a-dashboard-activity-today")
+            }
+            if range == "7 Days" {
+                XCTAssertTrue(dashboard.descendants(matching: .any)["activity-detail-chart"].firstMatch.exists)
+                capture("04b-dashboard-activity-week")
+            }
         }
+        dashboard.staticTexts["Tasks"].firstMatch.click()
+        dashboard.staticTexts["Activity"].firstMatch.click()
+        XCTAssertTrue(rangePicker.waitForExistence(timeout: 2))
+        XCTAssertEqual(rangePicker.frame.width, pickerSize.width, accuracy: 1)
+        XCTAssertEqual(rangePicker.frame.height, pickerSize.height, accuracy: 1)
+        dashboard.descendants(matching: .any)["30 Days"].firstMatch.click()
         capture("04-dashboard-activity")
 
         dashboard.typeKey("/", modifierFlags: [.command, .shift])
@@ -120,7 +150,9 @@ final class CodexGaugeUITests: XCTestCase {
         let settingsWindow = app.windows["General"]
         XCTAssertTrue(settingsWindow.waitForExistence(timeout: 3), "Settings should open in a reusable native window")
         XCTAssertTrue(settingsWindow.buttons["General"].exists)
+        XCTAssertTrue(settingsWindow.buttons["Menu Bar"].exists)
         XCTAssertTrue(settingsWindow.staticTexts["Startup"].exists, "General should be the active pane on first presentation")
+        XCTAssertFalse(settingsWindow.buttons["Check again"].exists)
         capture("06-settings-general")
         let notifications = settingsWindow.buttons["Notifications"]
         XCTAssertTrue(notifications.waitForExistence(timeout: 3), "Settings panes should be available from the window toolbar")
@@ -140,6 +172,94 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(reopenedHelp.waitForExistence(timeout: 3), "Help should open outside Settings")
         reopenedHelp.staticTexts["Privacy"].firstMatch.click()
         capture("08-help-privacy")
+    }
+
+    @MainActor
+    func testMenuBarCustomizationIsNativePreviewedAndRestorable() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestDemo", "-uiTestMenuBarCustomization"]
+        app.launch()
+
+        let statusItem = app.statusItems["codexgauge.statusItem"]
+        XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
+        XCTAssertTrue(statusItem.label.contains("Suggested pace"))
+
+        statusItem.click()
+        let statusNotice = app.descendants(matching: .any)["menu-bar-status-notice"].firstMatch
+        XCTAssertTrue(statusNotice.waitForExistence(timeout: 3), "A colored warning should explain itself at the top of the popover")
+        statusItem.click()
+
+        app.typeKey(",", modifierFlags: .command)
+        let general = app.windows["General"]
+        XCTAssertTrue(general.waitForExistence(timeout: 3))
+        general.buttons["Menu Bar"].click()
+        let menuBarWindow = app.windows["Menu Bar"]
+        XCTAssertTrue(menuBarWindow.waitForExistence(timeout: 3))
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-preview"].firstMatch.exists)
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-primary-allowance"].firstMatch.exists)
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-secondary-allowance"].firstMatch.exists)
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-reset-style"].firstMatch.exists)
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-pace-display"].firstMatch.exists)
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-color-basis"].firstMatch.exists)
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-color-target"].firstMatch.exists)
+        capture("09-settings-menu-bar-customized")
+
+        let restore = menuBarWindow.buttons["menu-bar-restore-defaults"].firstMatch
+        XCTAssertTrue(restore.isEnabled)
+        restore.click()
+        let confirmRestore = menuBarWindow.sheets.firstMatch.buttons["Restore"]
+        XCTAssertTrue(confirmRestore.waitForExistence(timeout: 2))
+        confirmRestore.click()
+        XCTAssertFalse(statusItem.label.contains("Suggested pace"))
+        XCTAssertFalse(menuBarWindow.descendants(matching: .any)["menu-bar-color-basis"].firstMatch.exists)
+        XCTAssertFalse(menuBarWindow.descendants(matching: .any)["menu-bar-color-target"].firstMatch.exists)
+        capture("09b-settings-menu-bar-default")
+    }
+
+    @MainActor
+    func testMenuBarVisibilityControlsStayActionableAndHideIrrelevantChoices() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestDemo"]
+        app.launch()
+        app.typeKey(",", modifierFlags: .command)
+
+        let general = app.windows["General"]
+        XCTAssertTrue(general.waitForExistence(timeout: 3))
+        general.buttons["Menu Bar"].click()
+        let menuBarWindow = app.windows["Menu Bar"]
+        XCTAssertTrue(menuBarWindow.waitForExistence(timeout: 3))
+
+        let gauge = menuBarWindow.descendants(matching: .any)["menu-bar-show-gauge"].firstMatch
+        let percentage = menuBarWindow.descendants(matching: .any)["menu-bar-show-percentage"].firstMatch
+        XCTAssertTrue(gauge.isEnabled)
+        XCTAssertTrue(percentage.isEnabled)
+
+        percentage.click()
+        XCTAssertTrue(gauge.isEnabled)
+        XCTAssertTrue(percentage.isEnabled)
+        XCTAssertFalse(menuBarWindow.descendants(matching: .any)["menu-bar-primary-allowance"].firstMatch.exists)
+        XCTAssertFalse(menuBarWindow.descendants(matching: .any)["menu-bar-secondary-allowance"].firstMatch.exists)
+
+        gauge.click()
+        XCTAssertTrue(gauge.isEnabled)
+        XCTAssertTrue(percentage.isEnabled)
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-primary-allowance"].firstMatch.exists)
+    }
+
+    @MainActor
+    func testMissingMenuBarSelectionFallsBackWithoutDiscardingTheChoice() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestDemo", "-uiTestMissingMenuBarSelection"]
+        app.launch()
+        app.typeKey(",", modifierFlags: .command)
+
+        let general = app.windows["General"]
+        XCTAssertTrue(general.waitForExistence(timeout: 3))
+        general.buttons["Menu Bar"].click()
+        let menuBarWindow = app.windows["Menu Bar"]
+        XCTAssertTrue(menuBarWindow.waitForExistence(timeout: 3))
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-primary-fallback"].firstMatch.exists)
+        XCTAssertTrue(menuBarWindow.descendants(matching: .any)["menu-bar-secondary-fallback"].firstMatch.exists)
     }
 
     @MainActor
@@ -263,6 +383,10 @@ final class CodexGaugeUITests: XCTestCase {
                 identified.waitForExistence(timeout: 2) || text.waitForExistence(timeout: 2),
                 "Missing expected state \(expectedIdentifierOrText) for \(arguments)"
             )
+            if arguments.contains("-uiTestMissingHelper") || arguments.contains("-uiTestSignedOut") {
+                XCTAssertFalse(app.buttons["Retry"].exists)
+                XCTAssertTrue(app.buttons["Settings…"].exists)
+            }
             app.terminate()
         }
     }

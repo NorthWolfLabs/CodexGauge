@@ -16,7 +16,11 @@ enum GaugeFormatting {
 
     static func tokenRate(_ value: Double) -> String {
         guard value.isFinite, value >= 1 else { return "0" }
-        return nonnegativeInt64(value).formatted(.number.notation(.compactName))
+        return nonnegativeInt64(value).formatted(
+            .number
+                .notation(.compactName)
+                .precision(.fractionLength(0))
+        )
     }
 
     static func duration(_ seconds: TimeInterval) -> String {
@@ -46,10 +50,6 @@ enum GaugeFormatting {
     static func resetCountdown(to date: Date, now: Date = .now) -> String {
         guard date > now else { return "Resetting now" }
         return "Resets in \(duration(date.timeIntervalSince(now)))"
-    }
-
-    static func updatedText(since date: Date, now: Date = .now) -> String {
-        "Updated \(relativeAge(since: date, now: now))"
     }
 
     static func relativeAge(since date: Date, now: Date = .now) -> String {

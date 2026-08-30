@@ -1,8 +1,15 @@
-# CodexGauge
+<p align="center">
+  <img src="CodexGauge/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png" width="128" height="128" alt="CodexGauge app icon">
+</p>
 
-CodexGauge is a native, read-only menu-bar monitor for Codex allowances and activity. It uses the Codex app server and local Codex metadata already available on your Mac, so it does not require another login, API key, or account token.
+<h1 align="center">CodexGauge</h1>
 
-CodexGauge is an independent North Wolf Labs project and is not affiliated with or endorsed by OpenAI or Apple.
+<p align="center">
+  A native, read-only menu-bar monitor for Codex allowances and activity.<br>
+  Uses the Codex app server and local metadata already available on your Mac—no additional login, API key, or account token required.
+</p>
+
+<p align="center"><sub>Independent software from North Wolf Labs. Not affiliated with or endorsed by OpenAI or Apple.</sub></p>
 
 ## Compatibility
 
@@ -16,13 +23,17 @@ Intel Macs are not supported.
 ## What it shows
 
 - Every allowance bucket and window returned by Codex, including reset time, remaining percentage, pacing estimates when enough metadata exists, credits, spend controls, and earned resets
-- The limiting Codex allowance in the menu bar
+- A customizable menu-bar summary with a primary and optional additional allowance, reset timing, an estimated sustainable pace, and optional semantic status colors
 - Live tasks on this Mac, including phase, current-turn duration, rolling token rate, token mix, latest context use, response-start latency, and linked-agent count
 - Up to 200 recent local root tasks from the previous 24 hours
 - Account-wide daily activity, period comparisons, lifetime tokens, streaks, peak day, and longest turn
 - Optional allowance and privacy-safe task-attention notifications
 
 Task token rates measure local activity. They are not a task’s share of the account allowance. Tasks that run only on another computer are not visible locally.
+
+Menu-bar customization is available in **Settings > Menu Bar**. The default remains a monochrome gauge and the Codex allowance with the least remaining. Reset timing, an additional allowance, suggested pace, and colors are opt-in. Suggested pace can show either the percentage points available per day or hour, or the remaining target at the end of the current allowance day or hour. Both are local estimates, not separate daily allowances issued by OpenAI.
+
+Warnings Only keeps normal values monochrome and adds yellow or red only when an allowance or its projected usage needs attention. Traffic Light also uses green for a healthy status. Remaining-allowance warnings begin at 20% and become critical at 10%. Usage pace turns yellow when the current pace is projected to use 90–100% by reset, and red when it is projected to run out early. Pacing status is withheld immediately after a reset, when whole-percentage account data is too coarse for a reliable projection. Every warning is explained at the top of the popover and reinforced through its symbol and accessibility text. If a specifically selected allowance temporarily disappears, CodexGauge keeps the preference and shows the lowest Codex allowance until it returns; an additional fallback is hidden when it would duplicate the main percentage.
 
 ## Installation
 
@@ -51,9 +62,11 @@ One AppKit-owned application lifecycle manages the status item, popover, Setting
 
 `CodexAppServerClient` keeps a newline-delimited JSON-RPC subprocess connection to the installed helper. Account identity and aggregate activity update at connection and every 15 minutes; allowance polling uses the selected 1, 5, 15, 30, 60, or 120-second cadence. Allowance-change notifications coalesce into an allowance-only refresh.
 
-`LocalSessionMonitor` uses FSEvents plus a three-second safety check. It incrementally tails bounded JSONL records, watches writer locks, folds linked agents into root tasks, and retains all live tasks plus up to 200 recent root tasks from the prior 24 hours. The popover shows four recent tasks; the Dashboard starts with ten and reveals ten more per action.
+`LocalSessionMonitor` uses FSEvents plus a one-second bounded safety check for known live tasks. It incrementally tails bounded JSONL records, watches writer locks, rotates lightweight checks across inactive files, folds linked agents into root tasks, and retains all live tasks plus up to 200 recent root tasks from the prior 24 hours. The popover shows four recent tasks; the Dashboard starts with ten and reveals ten more per action.
 
 Provider protocols and an injectable clock keep account, local-session, notification, date-range, freshness, and pacing behavior testable.
+
+Menu-bar countdowns are updated by a local one-shot timer only when their displayed hour or minute changes. They do not trigger account requests or add a one-second polling loop.
 
 ## Privacy
 
@@ -95,7 +108,7 @@ The application target uses macOS 14.4, hardened runtime, no App Sandbox, `LSUIE
 
 ### Usage is unavailable
 
-Open ChatGPT, confirm that you are signed in, and choose Refresh. In Settings, **Check again** reruns discovery. A manually selected helper is launched and initialized before CodexGauge accepts it.
+Open ChatGPT and confirm that you are signed in. CodexGauge keeps trying automatically. If it cannot find Codex, choose the helper in Settings; a manually selected helper is launched and initialized before CodexGauge accepts it.
 
 ### A task is missing
 
@@ -111,7 +124,7 @@ Check **Settings > Notifications**. If permission is denied, use **Open Notifica
 
 ## Authentic releases
 
-Official downloads are published through this repository's GitHub Releases page. Release artifacts are signed by North Wolf Labs LLC, notarized by Apple, and accompanied by SHA-256 checksums. Private signing and publication procedures are intentionally not documented in this public repository.
+Official downloads are published through this repository's GitHub Releases page. Starting with version 1.1.0, each release contains the signed and notarized DMG plus a `SHA256SUMS` file for that download. Debug symbols, build records, and notarization receipts are retained separately as release-engineering records. Private signing and publication procedures are intentionally not documented in this public repository.
 
 ## Contributing and support
 

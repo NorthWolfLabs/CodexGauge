@@ -294,15 +294,20 @@ jobs:
           spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
           cp "$input/CodexGauge-$RELEASE_TAG-dSYMs.zip" "$input/build-manifest.json" "$output/"
           rm -rf "$output/app" "$output/dmg-staging" "$app_zip"
-          (cd "$output" && shasum -a 256 "CodexGauge-$RELEASE_TAG.dmg" "CodexGauge-$RELEASE_TAG-dSYMs.zip" app-notarization.json dmg-notarization.json build-manifest.json > SHA256SUMS)
+          # The public checksum must be independently usable with the public DMG.
+          # Debug symbols, build metadata, and Apple receipts remain in this
+          # internal workflow handoff and are never attached to the release.
+          (cd "$output" && shasum -a 256 "CodexGauge-$RELEASE_TAG.dmg" > SHA256SUMS)
+          (cd "$output" && shasum -a 256 "CodexGauge-$RELEASE_TAG.dmg" "CodexGauge-$RELEASE_TAG-dSYMs.zip" app-notarization.json dmg-notarization.json build-manifest.json > INTERNAL-SHA256SUMS)
           (cd "$output" && shasum -a 256 -c SHA256SUMS)
-      - name: Upload signed release assets
+          (cd "$output" && shasum -a 256 -c INTERNAL-SHA256SUMS)
+      - name: Retain internal signed release records
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: signed-release-${{ needs.validate.outputs.commit }}
           path: ${{ runner.temp }}/signed-output
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 90
 
   publish-draft:
     name: Create owner-reviewed draft
@@ -312,7 +317,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download signed release assets
+      - name: Download verified release handoff
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: signed-release-${{ needs.validate.outputs.commit }}
@@ -327,6 +332,7 @@ jobs:
           set -euo pipefail
           root="$RUNNER_TEMP/signed-release"
           (cd "$root" && shasum -a 256 -c SHA256SUMS)
+          (cd "$root" && shasum -a 256 -c INTERNAL-SHA256SUMS)
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             print -u2 'A GitHub Release already exists for this tag.'
             exit 1
@@ -336,8 +342,4 @@ jobs:
           gh release create "$RELEASE_TAG" \
             "$root/CodexGauge-$RELEASE_TAG.dmg" \
             "$root/SHA256SUMS" \
-            "$root/build-manifest.json" \
-            "$root/CodexGauge-$RELEASE_TAG-dSYMs.zip" \
-            "$root/app-notarization.json" \
-            "$root/dmg-notarization.json" \
             --draft --generate-notes --verify-tag "${prerelease[@]}"

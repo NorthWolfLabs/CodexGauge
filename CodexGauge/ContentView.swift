@@ -89,16 +89,35 @@ struct ContentView: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                if let notice = menuBarStatusNotice {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(notice.title)
+                                .font(.subheadline.weight(.semibold))
+                            Text(notice.detail)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: notice.symbolName)
+                            .foregroundStyle(notice.severity == .critical ? .red : .orange)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("menu-bar-status-notice")
+                }
             } else {
                 ContentUnavailableView {
                     Label("Allowance data unavailable", systemImage: "gauge.with.needle")
                 } description: {
-                    Text(state.errorMessage ?? "Looking for Codex on this Mac…")
+                    Text("Open ChatGPT to connect. CodexGauge will keep trying automatically.")
                 } actions: {
                     HStack {
                         Button("Open ChatGPT", action: state.openChatGPT)
-                        Button("Retry") { Task { await state.reconnect() } }
-                            .keyboardShortcut(.defaultAction)
+                        Button("Settings…", action: onShowSettings)
                     }
                 }
                 .accessibilityIdentifier("usage-unavailable")
@@ -107,11 +126,20 @@ struct ContentView: View {
         .padding(16)
     }
 
+    private var menuBarStatusNotice: MenuBarStatusNotice? {
+        MenuBarPresentationBuilder.make(
+            snapshot: state.accountSnapshot,
+            freshness: state.displayFreshness,
+            configuration: state.settings.menuBarConfiguration,
+            now: clock.now
+        ).statusNotice
+    }
+
     @ViewBuilder
     private var freshnessLabel: some View {
         switch state.displayFreshness {
         case .loading:
-            Label("Refreshing", systemImage: "arrow.clockwise")
+            Label("Connecting", systemImage: "ellipsis.circle")
         case .fresh:
             Label("Current", systemImage: "checkmark.circle.fill")
         case .stale:
@@ -241,6 +269,10 @@ struct ContentView: View {
         let peak = week.max { $0.tokens < $1.tokens }
         let chartMaximum = max(Int64(1), week.map(\.tokens).max() ?? 1)
         let chartUpperBound = max(1, Double(chartMaximum) * 1.12)
+        let chartCategories = week.map(activityDayCategory)
+        let chartDatesByCategory = Dictionary(
+            uniqueKeysWithValues: week.map { (activityDayCategory($0), $0.date) }
+        )
 
         return FullWidthDisclosure(
             identifier: "popover-activity-disclosure",
@@ -249,17 +281,25 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 14) {
                 if !week.isEmpty {
                     Chart(week) { day in
-                        BarMark(x: .value("Day", day.date, unit: .day), y: .value("Tokens", day.tokens))
-                            .foregroundStyle(.tint)
-                            .clipShape(RoundedRectangle(cornerRadius: 2))
+                        if day.tokens > 0 {
+                            BarMark(
+                                x: .value("Day", activityDayCategory(day)),
+                                y: .value("Tokens", day.tokens),
+                                width: .fixed(24)
+                            )
+                                .foregroundStyle(.tint)
+                                .clipShape(RoundedRectangle(cornerRadius: 2))
+                        }
                     }
                     .chartXAxis {
-                        AxisMarks(values: .stride(by: .day)) { value in
+                        AxisMarks(values: chartCategories) { value in
                             AxisTick().foregroundStyle(.clear)
                             AxisGridLine().foregroundStyle(.clear)
-                            AxisValueLabel(centered: true) {
-                                if let date = value.as(Date.self) {
+                            AxisValueLabel {
+                                if let category = value.as(String.self),
+                                   let date = chartDatesByCategory[category] {
                                     Text(date, format: .dateTime.weekday(.narrow))
+                                        .padding(.top, 6)
                                 }
                             }
                         }
@@ -275,12 +315,8 @@ struct ContentView: View {
                         }
                     }
                     .chartYScale(domain: 0...chartUpperBound)
-                    .chartPlotStyle { plot in
-                        plot
-                            .padding(.horizontal, 4)
-                            .padding(.top, 6)
-                    }
-                    .frame(height: 106)
+                    .frame(height: 112)
+                    .accessibilityIdentifier("popover-activity-chart")
                     .accessibilityChartDescriptor(TokenActivityChartDescriptor(
                         title: "Codex activity for the last seven days",
                         summary: "A daily chart of account-wide token activity.",
@@ -309,6 +345,10 @@ struct ContentView: View {
         .padding(16)
     }
 
+    private func activityDayCategory(_ usage: DailyUsage) -> String {
+        "\(usage.day.year)-\(usage.day.month)-\(usage.day.day)"
+    }
+
     private func activityStat(_ label: String, _ value: String?) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value ?? "—")
@@ -324,8 +364,6 @@ struct ContentView: View {
     private var footer: some View {
         HStack(spacing: 12) {
             Spacer()
-            RefreshAllowancesButton(state: state, clock: clock)
-
             Button(action: onShowDashboard) {
                 Image(systemName: "chart.xyaxis.line")
                     .font(.system(size: 14, weight: .medium))
@@ -500,10 +538,8 @@ private struct LiveConversationRow: View {
                     Spacer(minLength: 8)
 
                     VStack(alignment: .trailing, spacing: 1) {
-                        Text(GaugeFormatting.tokenRate(conversation.tokensPerMinute))
+                        AnimatedTokenRateText(rate: conversation.tokensPerMinute)
                             .font(.subheadline.weight(.medium).monospacedDigit())
-                            .contentTransition(.numericText())
-                            .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: conversation.tokensPerMinute)
                         Text("tokens/min")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -618,9 +654,9 @@ private struct LiveConversationDetails: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                ConversationMetricCard(
+                AnimatedConversationMetricCard(
                     title: "5-minute pace",
-                    value: GaugeFormatting.tokenRate(conversation.tokensPerFiveMinutes),
+                    rate: conversation.tokensPerFiveMinutes,
                     unit: "tokens/min"
                 )
                 if let calls = conversation.callsPerMinute {
@@ -655,6 +691,30 @@ private struct LiveConversationDetails: View {
             Text(value).fontWeight(.medium).monospacedDigit()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct AnimatedConversationMetricCard: View {
+    let title: String
+    let rate: Double
+    let unit: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            AnimatedTokenRateText(rate: rate)
+                .font(.subheadline.weight(.semibold).monospacedDigit())
+                .lineLimit(1)
+            Text(unit)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 7))
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -777,41 +837,6 @@ private struct TurnDurationLabel: View {
     var body: some View {
         Label(GaugeFormatting.duration(clock.now.timeIntervalSince(startedAt)), systemImage: "timer")
             .monospacedDigit()
-    }
-}
-
-private struct RefreshAllowancesButton: View {
-    @Bindable var state: AppState
-    @Bindable var clock: VisibleSurfaceClock
-
-    var body: some View {
-        Button {
-            Task { await state.refresh() }
-        } label: {
-            Group {
-                if state.isRefreshing {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "arrow.clockwise")
-                }
-            }
-            .font(.system(size: 14, weight: .medium))
-            .frame(width: 34, height: 34)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .help(helpText)
-        .accessibilityLabel("Refresh allowances")
-        .accessibilityHint(helpText)
-        .disabled(state.isRefreshing || state.executableURL == nil)
-    }
-
-    private var helpText: String {
-        if state.isRefreshing { return "Refreshing allowances" }
-        guard let fetchedAt = state.accountSnapshot?.fetchedAt else {
-            return "Refresh allowances. No update available yet."
-        }
-        return "Refresh allowances. \(GaugeFormatting.updatedText(since: fetchedAt, now: clock.now))."
     }
 }
 

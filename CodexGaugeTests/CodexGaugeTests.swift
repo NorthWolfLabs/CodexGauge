@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 import CoreServices
+import Darwin
 import LightweightCodeRequirements
 import Security
 import Testing
@@ -24,6 +26,32 @@ private func testHostHasTeamSignature() -> Bool {
 }
 
 struct CodexGaugeTests {
+    @MainActor
+    @Test func statusItemSymbolsUseBoundedAlignedGeometry() throws {
+        let gauge = try #require(
+            StatusItemSymbolRenderer.image(named: "gauge.with.dots.needle.33percent", color: nil)
+        )
+        let warning = try #require(
+            StatusItemSymbolRenderer.image(named: "exclamationmark.triangle.fill", color: .systemRed)
+        )
+        let unalignedGauge = try #require(
+            NSImage(systemSymbolName: "gauge.with.dots.needle.33percent", accessibilityDescription: nil)?
+                .withSymbolConfiguration(StatusItemSymbolRenderer.configuration)
+        )
+
+        for image in [gauge, warning] {
+            #expect(image.size.width >= 15)
+            #expect(image.size.width <= 17)
+            #expect(image.size.height >= 17)
+            #expect(image.size.height <= 19)
+        }
+
+        #expect(gauge.isTemplate)
+        #expect(!warning.isTemplate)
+        #expect(abs(gauge.size.width - warning.size.width) < 0.5)
+        #expect(gauge.size.height == unalignedGauge.size.height + 2)
+    }
+
     @MainActor
     @Test func allowanceAlertsStartOffWithPracticalPresets() {
         let suite = "CodexGaugeTests.\(UUID().uuidString)"
@@ -81,6 +109,596 @@ struct CodexGaugeTests {
         #expect(settings.notificationThresholds == [99, 5, 1])
     }
 
+    @MainActor
+    @Test func menuBarPreferencesDefaultPersistAndRestoreWithoutChangingExistingSettings() {
+        let suite = "CodexGaugeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.menuBarConfiguration == .default)
+        var customized = settings.menuBarConfiguration
+        customized.showsGauge = false
+        customized.primaryAllowance = .lowestOverall
+        customized.secondaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+        customized.resetDisplay = .timeRemaining
+        customized.showsSuggestedPace = true
+        customized.colorMode = .trafficLight
+        customized.colorBasis = .usagePace
+        customized.colorTarget = .gaugeAndValues
+        settings.menuBarConfiguration = customized
+
+        let reloaded = SettingsStore(defaults: defaults)
+        #expect(reloaded.menuBarConfiguration == customized.normalized)
+        reloaded.restoreMenuBarDefaults()
+        #expect(reloaded.menuBarConfiguration == .default)
+    }
+
+    @MainActor
+    @Test func menuBarConfigurationCannotPersistAnInvisibleStatusItem() {
+        let suite = "CodexGaugeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let settings = SettingsStore(defaults: defaults)
+        var hidden = settings.menuBarConfiguration
+        hidden.showsGauge = false
+        hidden.showsPercentage = false
+        hidden.resetDisplay = .hidden
+        hidden.showsSuggestedPace = false
+
+        settings.menuBarConfiguration = hidden
+
+        #expect(settings.menuBarConfiguration.showsGauge)
+        #expect(settings.menuBarConfiguration.hasVisibleContent)
+    }
+
+    @MainActor
+    @Test func invalidPersistedMenuBarConfigurationFallsBackToDefaults() {
+        let suite = "CodexGaugeTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(Data("not-json".utf8), forKey: "menuBarConfiguration")
+
+        let settings = SettingsStore(defaults: defaults)
+
+        #expect(settings.menuBarConfiguration == .default)
+    }
+
+    @Test func menuBarAllowanceResolutionSupportsCanonicalOverallAndSpecificWindows() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let snapshot = menuBarSnapshot(now: now)
+
+        #expect(AllowanceResolver.resolve(.limitingCodex, in: snapshot)?.window.id == "codex-secondary")
+        #expect(AllowanceResolver.resolve(.lowestOverall, in: snapshot)?.window.id == "spark-primary")
+        #expect(AllowanceResolver.resolve(
+            .specific(bucketID: "codex", windowID: "codex-primary"),
+            in: snapshot
+        )?.window.durationMinutes == 300)
+        #expect(AllowanceResolver.options(in: snapshot).map(\.title).contains("Codex · 5-hour"))
+    }
+
+    @Test func defaultMenuBarPresentationRemainsMonochromeGaugeAndLimitingCodexPercentage() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: .default,
+            now: now
+        )
+
+        #expect(presentation.symbolName == "gauge.with.needle")
+        #expect(presentation.symbolSeverity == .neutral)
+        #expect(presentation.plainText == "28%")
+        #expect(presentation.segments.allSatisfy { $0.severity == .neutral })
+        #expect(presentation.nextUpdateAt == nil)
+    }
+
+    @Test func menuBarPresentationSupportsEveryVisibleContentCombinationAndUnavailableState() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let snapshot = menuBarSnapshot(now: now)
+
+        var iconOnly = MenuBarConfiguration.default
+        iconOnly.showsPercentage = false
+        let iconPresentation = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: iconOnly,
+            now: now
+        )
+        #expect(iconPresentation.symbolName == "gauge.with.needle")
+        #expect(iconPresentation.plainText.isEmpty)
+
+        var percentageOnly = MenuBarConfiguration.default
+        percentageOnly.showsGauge = false
+        let percentagePresentation = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: percentageOnly,
+            now: now
+        )
+        #expect(percentagePresentation.symbolName == nil)
+        #expect(percentagePresentation.plainText == "28%")
+
+        var resetOnly = MenuBarConfiguration.default
+        resetOnly.showsGauge = false
+        resetOnly.showsPercentage = false
+        resetOnly.resetDisplay = .timeRemaining
+        let resetPresentation = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: resetOnly,
+            now: now
+        )
+        #expect(resetPresentation.symbolName == nil)
+        #expect(resetPresentation.plainText == "2d 18h")
+
+        var paceOnly = MenuBarConfiguration.default
+        paceOnly.showsGauge = false
+        paceOnly.showsPercentage = false
+        paceOnly.showsSuggestedPace = true
+        let pacePresentation = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: paceOnly,
+            now: now,
+            locale: Locale(identifier: "en_US")
+        )
+        #expect(pacePresentation.symbolName == nil)
+        #expect(pacePresentation.plainText == "≈10%/day")
+        #expect(pacePresentation.tooltip.contains("percentage points"))
+        #expect(pacePresentation.tooltip.contains("10.1"))
+
+        let unavailablePresentation = MenuBarPresentationBuilder.make(
+            snapshot: nil,
+            freshness: .unavailable,
+            configuration: .default,
+            now: now
+        )
+        #expect(unavailablePresentation.symbolName == "questionmark.circle")
+        #expect(unavailablePresentation.plainText == "—")
+        #expect(unavailablePresentation.accessibilityLabel.contains("unavailable"))
+
+        let stalePresentation = MenuBarPresentationBuilder.make(
+            snapshot: nil,
+            freshness: .stale,
+            configuration: .default,
+            now: now
+        )
+        #expect(stalePresentation.symbolName == "exclamationmark.triangle.fill")
+        #expect(stalePresentation.accessibilityLabel.contains("out of date"))
+    }
+
+    @Test func missingSpecificAllowanceFallsBackWithoutLosingItsUnavailableState() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "missing", windowID: "missing-primary")
+        configuration.secondaryAllowance = .specific(bucketID: "also-missing", windowID: "missing-secondary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now,
+            locale: Locale(identifier: "en_US"),
+            timeZone: TimeZone(secondsFromGMT: 0)!
+        )
+
+        #expect(presentation.primarySelectionUnavailable)
+        #expect(presentation.secondarySelectionUnavailable)
+        #expect(presentation.plainText == "28%")
+    }
+
+    @Test func primaryAndSecondaryAllowancesProduceAnUnambiguousCompactLabel() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+        configuration.secondaryAllowance = .specific(bucketID: "codex", windowID: "codex-secondary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.plainText == "5h 62% · 1w 28%")
+        #expect(presentation.tooltip.components(separatedBy: "Resets").count - 1 == 1)
+    }
+
+    @Test func allowancesFromDifferentBucketsIncludeTheirNames() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+        configuration.secondaryAllowance = .specific(bucketID: "codex-spark", windowID: "spark-primary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.plainText == "Codex 5h 62% · Codex Spark 1d 5%")
+    }
+
+    @Test func duplicateResolvedSecondaryAllowanceIsSuppressed() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .limitingCodex
+        configuration.secondaryAllowance = .specific(bucketID: "codex", windowID: "codex-secondary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.plainText == "28%")
+    }
+
+    @Test func hiddenPercentagesAlsoSuppressTheAdditionalAllowanceFromStatusAndColor() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.showsPercentage = false
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+        configuration.secondaryAllowance = .specific(bucketID: "codex-spark", windowID: "spark-primary")
+        configuration.colorMode = .warningsOnly
+        configuration.colorBasis = .remainingAllowance
+        configuration.colorTarget = .gaugeOnly
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.symbolName == "gauge.with.needle")
+        #expect(presentation.symbolSeverity == .neutral)
+        #expect(presentation.plainText.isEmpty)
+        #expect(!presentation.tooltip.contains("Codex Spark"))
+    }
+
+    @Test func unavailableSuggestedPaceCannotCreateAnInvisibleStatusItem() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.showsGauge = false
+        configuration.showsPercentage = false
+        configuration.showsSuggestedPace = true
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.symbolName == "gauge.with.needle")
+        #expect(presentation.segments.isEmpty)
+    }
+
+    @Test func resetCountdownUsesStableCompactBoundaries() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now.addingTimeInterval(6 * 86_400 + 5 * 3_600), now: now) == "6d 5h")
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now.addingTimeInterval(5 * 3_600 + 18 * 60), now: now) == "5h 18m")
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now.addingTimeInterval(42 * 60), now: now) == "42m")
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now.addingTimeInterval(42), now: now) == "<1m")
+        #expect(MenuBarPresentationBuilder.compactCountdown(to: now, now: now) == "Now")
+    }
+
+    @Test func menuBarPresentationNeverLeavesAnOrphanedDivider() {
+        let presentation = MenuBarPresentation(
+            symbolName: "gauge.with.needle",
+            symbolSeverity: .normal,
+            segments: [
+                MenuBarTextSegment(text: "99%", severity: .normal, usesMonospacedDigits: true),
+                MenuBarTextSegment(text: " · ", severity: .neutral, usesMonospacedDigits: false)
+            ],
+            tooltip: "Test",
+            accessibilityLabel: "Test",
+            nextUpdateAt: nil,
+            primarySelectionUnavailable: false,
+            secondarySelectionUnavailable: false,
+            statusNotice: nil
+        )
+
+        #expect(presentation.plainText == "99%")
+        #expect(presentation.displaySegments.count == 1)
+    }
+
+    @Test func absoluteResetPresentationUsesTheSelectedTimeZoneAcrossADaylightSavingBoundary() {
+        let reset = ISO8601DateFormatter().date(from: "2026-11-01T05:30:00Z")!
+        let now = reset.addingTimeInterval(-2 * 86_400)
+        let window = QuotaWindow(
+            id: "codex-secondary",
+            kind: "Secondary",
+            usedPercent: 20,
+            durationMinutes: 10_080,
+            resetsAt: reset
+        )
+        let snapshot = singleWindowSnapshot(window: window, now: now)
+        var configuration = MenuBarConfiguration.default
+        configuration.resetDisplay = .timeRemainingAndResetTime
+        let locale = Locale(identifier: "en_US")
+
+        let newYork = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: configuration,
+            now: now,
+            locale: locale,
+            timeZone: TimeZone(identifier: "America/New_York")!
+        )
+        let utc = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: configuration,
+            now: now,
+            locale: locale,
+            timeZone: TimeZone(secondsFromGMT: 0)!
+        )
+
+        let newYorkText = newYork.plainText.replacingOccurrences(of: "\u{202F}", with: " ")
+        let utcText = utc.plainText.replacingOccurrences(of: "\u{202F}", with: " ")
+        #expect(newYorkText.contains("1:30 AM"))
+        #expect(utcText.contains("5:30 AM"))
+        #expect(newYork.plainText.hasPrefix("80% · 2d 0h"))
+        #expect(newYork.nextUpdateAt != nil)
+    }
+
+    @Test func suggestedPaceUsesExactRemainingTimeAndSwitchesToHoursOnTheFinalDay() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let daily = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 16,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(6 * 86_400 + 5 * 3_600)
+        )
+        let hourly = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 16,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(12 * 3_600)
+        )
+
+        let dailyPace = MenuBarPresentationBuilder.suggestedPace(for: daily, now: now, isFresh: true)
+        let hourlyPace = MenuBarPresentationBuilder.suggestedPace(for: hourly, now: now, isFresh: true)
+        #expect(dailyPace?.unit == .day)
+        #expect(abs((dailyPace?.percentagePoints ?? 0) - (84 / (6 + 5.0 / 24))) < 0.001)
+        #expect(dailyPace?.compactText(style: .usageRate) == "≈14%/day")
+        #expect(dailyPace?.compactText(style: .remainingTarget) == "Target 86%")
+        #expect(hourlyPace?.unit == .hour)
+        #expect(hourlyPace?.percentagePoints == 7)
+        #expect(hourlyPace?.compactText(style: .remainingTarget) == "Target 7%")
+        #expect(MenuBarPresentationBuilder.suggestedPace(
+            for: QuotaWindow(id: "short", kind: "Primary", usedPercent: 10, durationMinutes: 300, resetsAt: now.addingTimeInterval(3_600)),
+            now: now,
+            isFresh: true
+        ) == nil)
+        #expect(MenuBarPresentationBuilder.suggestedPace(for: daily, now: now, isFresh: false) == nil)
+    }
+
+    @Test func remainingTargetPresentationUsesTheCurrentAllowanceDayBoundary() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let window = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 16,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(6 * 86_400 + 5 * 3_600)
+        )
+        var configuration = MenuBarConfiguration.default
+        configuration.showsSuggestedPace = true
+        configuration.suggestedPaceDisplay = .remainingTarget
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: singleWindowSnapshot(window: window, now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now,
+            locale: Locale(identifier: "en_US")
+        )
+
+        #expect(presentation.plainText == "84% · Target 86%")
+        #expect(presentation.tooltip.contains("finish this allowance day"))
+        #expect(presentation.nextUpdateAt?.timeIntervalSince(now) ?? 0 > 5 * 3_600)
+        #expect(presentation.nextUpdateAt?.timeIntervalSince(now) ?? .infinity < 5 * 3_600 + 1)
+    }
+
+    @Test func menuBarConfigurationDecodesOlderPreferencesAndRepairsUnavailableColorTargets() throws {
+        let oldJSON = Data(#"{"showsGauge":false,"showsPercentage":true,"primaryAllowance":{"limitingCodex":{}},"resetDisplay":"hidden","showsSuggestedPace":false,"colorMode":"trafficLight","colorBasis":"combined","colorTarget":"gaugeOnly"}"#.utf8)
+        let decoded = try JSONDecoder().decode(MenuBarConfiguration.self, from: oldJSON)
+
+        #expect(decoded.suggestedPaceDisplay == .usageRate)
+        #expect(decoded.normalized.colorTarget == .valuesOnly)
+
+        var gaugeOnly = MenuBarConfiguration.default
+        gaugeOnly.showsPercentage = false
+        gaugeOnly.colorTarget = .valuesOnly
+        #expect(gaugeOnly.normalized.colorTarget == .gaugeOnly)
+    }
+
+    @Test func menuBarSeverityUsesBuiltInRemainingAndPacingRules() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        func window(used: Int, resetAfter: TimeInterval = 3_000) -> QuotaWindow {
+            QuotaWindow(id: "test", kind: "Primary", usedPercent: used, durationMinutes: 100, resetsAt: now.addingTimeInterval(resetAfter))
+        }
+
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 79), basis: .remainingAllowance, now: now, isFresh: true) == .normal)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 80), basis: .remainingAllowance, now: now, isFresh: true) == .caution)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 90), basis: .remainingAllowance, now: now, isFresh: true) == .critical)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 45), basis: .usagePace, now: now, isFresh: true) == .caution)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 51), basis: .usagePace, now: now, isFresh: true) == .critical)
+        #expect(MenuBarPresentationBuilder.severity(for: window(used: 80), basis: .combined, now: now, isFresh: false) == .neutral)
+    }
+
+    @Test func pacingDoesNotWarnFromCoarseDataImmediatelyAfterAReset() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let earlyWeeklyWindow = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 1,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(6 * 86_400 + 22 * 3_600)
+        )
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "weekly")
+        configuration.resetDisplay = .timeRemaining
+        configuration.colorMode = .warningsOnly
+        configuration.colorBasis = .combined
+        configuration.colorTarget = .gaugeAndValues
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: singleWindowSnapshot(window: earlyWeeklyWindow, now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(earlyWeeklyWindow.pacing(now: now) == nil)
+        #expect(presentation.symbolName == "gauge.with.needle")
+        #expect(presentation.symbolSeverity == .neutral)
+        #expect(presentation.statusNotice == nil)
+        #expect(presentation.plainText == "99% · 6d 22h")
+    }
+
+    @Test func genuineMenuBarWarningIncludesAPopoverExplanation() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let weeklyWindow = QuotaWindow(
+            id: "weekly",
+            kind: "Secondary",
+            usedPercent: 72,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(240_000)
+        )
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "weekly")
+        configuration.colorMode = .warningsOnly
+        configuration.colorBasis = .combined
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: singleWindowSnapshot(window: weeklyWindow, now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.statusNotice?.severity == .critical)
+        #expect(presentation.statusNotice?.title == "Usage may exceed this allowance")
+        #expect(presentation.statusNotice?.detail.contains("Codex weekly allowance") == true)
+    }
+
+    @Test func stalePresentationSuppressesPaceAndOverridesConfiguredColors() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-secondary")
+        configuration.showsSuggestedPace = true
+        configuration.colorMode = .trafficLight
+        configuration.colorTarget = .gaugeAndValues
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .stale,
+            configuration: configuration,
+            now: now
+        )
+
+        #expect(presentation.symbolName == "exclamationmark.triangle.fill")
+        #expect(presentation.symbolSeverity == .neutral)
+        #expect(!presentation.plainText.contains("/day"))
+        #expect(presentation.segments.allSatisfy { $0.severity == .neutral })
+        #expect(presentation.accessibilityLabel.contains("out of date"))
+    }
+
+    @Test func warningsOnlyAndTrafficLightModesApplyTheirConfiguredTargets() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let window = QuotaWindow(
+            id: "codex-primary",
+            kind: "Primary",
+            usedPercent: 5,
+            durationMinutes: 300,
+            resetsAt: now.addingTimeInterval(4 * 3_600)
+        )
+        let snapshot = singleWindowSnapshot(window: window, now: now)
+        var configuration = MenuBarConfiguration.default
+        configuration.colorBasis = .remainingAllowance
+        configuration.colorMode = .warningsOnly
+        configuration.colorTarget = .gaugeAndValues
+
+        let warnings = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        #expect(warnings.symbolSeverity == .neutral)
+        #expect(warnings.segments.allSatisfy { $0.severity == .neutral })
+
+        configuration.colorMode = .trafficLight
+        let traffic = MenuBarPresentationBuilder.make(
+            snapshot: snapshot,
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        #expect(traffic.symbolSeverity == .normal)
+        #expect(traffic.segments.contains { $0.severity == .normal })
+    }
+
+    @Test func countdownPresentationSchedulesOnlyItsNextVisibleBoundary() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var configuration = MenuBarConfiguration.default
+        configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-secondary")
+        configuration.resetDisplay = .timeRemaining
+
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        let delay = presentation.nextUpdateAt?.timeIntervalSince(now)
+        #expect(delay != nil)
+        #expect((delay ?? 0) > 0)
+        #expect((delay ?? .infinity) <= 3_600.1)
+
+        configuration.resetDisplay = .resetDateAndTime
+        let staticPresentation = MenuBarPresentationBuilder.make(
+            snapshot: menuBarSnapshot(now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        #expect(staticPresentation.nextUpdateAt == nil)
+    }
+
+    @Test func suggestedPaceNeverCreatesASubminuteUpdateLoop() {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let window = QuotaWindow(
+            id: "codex-secondary",
+            kind: "Secondary",
+            usedPercent: 16,
+            durationMinutes: 10_080,
+            resetsAt: now.addingTimeInterval(120)
+        )
+        var configuration = MenuBarConfiguration.default
+        configuration.showsSuggestedPace = true
+        let presentation = MenuBarPresentationBuilder.make(
+            snapshot: singleWindowSnapshot(window: window, now: now),
+            freshness: .fresh,
+            configuration: configuration,
+            now: now
+        )
+        let delay = presentation.nextUpdateAt?.timeIntervalSince(now)
+
+        #expect((delay ?? 0) >= 60)
+        #expect((delay ?? .infinity) <= 120.1)
+    }
+
     @Test func remainingPercentageIsClamped() {
         let over = QuotaWindow(id: "a", kind: "Primary", usedPercent: 130, durationMinutes: nil, resetsAt: nil)
         let under = QuotaWindow(id: "b", kind: "Primary", usedPercent: -10, durationMinutes: nil, resetsAt: nil)
@@ -96,6 +714,7 @@ struct CodexGaugeTests {
         #expect(GaugeFormatting.tokenRate(-1) == "0")
         #expect(!GaugeFormatting.tokenRate(.greatestFiniteMagnitude).isEmpty)
         #expect(GaugeFormatting.nonnegativeInt64(.greatestFiniteMagnitude) == .max)
+        #expect(GaugeFormatting.tokenRate(549_000) == GaugeFormatting.tokenRate(549_200))
     }
 
     @Test func recentDurationsUseStableCoarseUnits() {
@@ -110,6 +729,9 @@ struct CodexGaugeTests {
         #expect(RefreshBackoff.delay(forFailureCount: 1) == 2)
         #expect(RefreshBackoff.delay(forFailureCount: 4) == 16)
         #expect(RefreshBackoff.delay(forFailureCount: 20) == 120)
+        #expect(ConnectionRecoveryBackoff.delay(forAttempt: 1) == 15)
+        #expect(ConnectionRecoveryBackoff.delay(forAttempt: 4) == 16)
+        #expect(ConnectionRecoveryBackoff.delay(forAttempt: 20) == 120)
     }
 
     @Test func snapshotWritesAreCoalescedExceptForResetChanges() {
@@ -529,9 +1151,190 @@ struct CodexGaugeTests {
         #expect(result?.first?.workspace == "Sample")
         #expect(result?.first?.totalTokens == 800)
         #expect(result?.first?.model == "gpt-test")
+        #expect(result?.first?.state == .running)
         #expect(result?.first?.activity == .thinking)
         #expect(result?.first?.callsPerMinute == 3)
         #expect(abs((result?.first?.latestContextPercent ?? 0) - 0.17) < 0.000_001)
+    }
+
+    @Test func liveTaskFallbackTailsAnUnlockedTaskWhenFilesystemEventsAreUnavailable() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sessionDirectory = temporary.appending(path: "sessions/2026/08/21", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: temporary.appending(path: "thread-writer-locks"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let id = "11111111-2222-3333-4444-666666666666"
+        let initialLines = [
+            #"{"timestamp":"2026-08-21T20:00:00.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/LiveFallback","model":"gpt-test"}}"#,
+            #"{"timestamp":"2026-08-21T20:00:01.000Z","type":"event_msg","payload":{"type":"task_started"}}"#
+        ]
+        let file = sessionDirectory.appending(path: "rollout-2026-08-21T20-00-00-\(id).jsonl")
+        try Data((initialLines.joined(separator: "\n") + "\n").utf8).write(to: file)
+
+        let monitor = LocalSessionMonitor(
+            codexHomeURL: temporary,
+            clock: FixedClock(now: ISO8601DateFormatter().date(from: "2026-08-21T20:00:10Z")!),
+            maintenanceInterval: .milliseconds(25),
+            watchesFilesystemEvents: false
+        )
+        let stream = await monitor.snapshots()
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.first?.state == .running)
+        #expect(initial?.first?.totalTokens == 0)
+
+        let tokenRecord = #"{"timestamp":"2026-08-21T20:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":80,"cached_input_tokens":50,"cache_write_input_tokens":0,"output_tokens":20,"reasoning_output_tokens":0,"total_tokens":100},"last_token_usage":{"input_tokens":80,"cached_input_tokens":50,"cache_write_input_tokens":0,"output_tokens":20,"reasoning_output_tokens":0,"total_tokens":100},"model_context_window":100000}}}"#
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((tokenRecord + "\n").utf8))
+        try handle.close()
+
+        try await Task.sleep(for: .milliseconds(200))
+        await monitor.stop()
+        let updated = await iterator.next()
+
+        #expect(updated?.first?.state == .running)
+        #expect(updated?.first?.totalTokens == 100)
+        #expect(updated?.first?.tokensPerMinute == 100)
+    }
+
+    @Test func localTokenRatesDecayEachMaintenanceTickWithoutNewFileData() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sessionDirectory = temporary.appending(path: "sessions/2026/08/29", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: temporary.appending(path: "thread-writer-locks"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let now = ISO8601DateFormatter().date(from: "2026-08-29T16:00:10Z")!
+        let clock = AdjustableClock(now: now)
+        let id = "11111111-2222-3333-4444-888888888888"
+        let lines = [
+            #"{"timestamp":"2026-08-29T16:00:09.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Decay","model":"gpt-test"}}"#,
+            #"{"timestamp":"2026-08-29T16:00:09.000Z","type":"event_msg","payload":{"type":"task_started"}}"#,
+            #"{"timestamp":"2026-08-29T16:00:10.000Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":500,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":600},"last_token_usage":{"input_tokens":500,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":600}}}}"#
+        ]
+        let file = sessionDirectory.appending(path: "rollout-2026-08-29T16-00-09-\(id).jsonl")
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
+
+        let monitor = LocalSessionMonitor(
+            codexHomeURL: temporary,
+            clock: clock,
+            maintenanceInterval: .milliseconds(25),
+            watchesFilesystemEvents: false
+        )
+        let stream = await monitor.snapshots()
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.first?.tokensPerMinute == 600)
+        #expect(initial?.first?.tokensPerFiveMinutes == 120)
+
+        clock.advance(by: 1)
+        let decayed = await iterator.next()
+        await monitor.stop()
+
+        #expect(abs((decayed?.first?.tokensPerMinute ?? 0) - 590) < 0.000_001)
+        #expect(abs((decayed?.first?.tokensPerFiveMinutes ?? 0) - 119.6) < 0.000_001)
+    }
+
+    @Test func liveTaskFallbackSkipsAStaleBacklogToPublishTheNewestState() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sessionDirectory = temporary.appending(path: "sessions/2026/08/29", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: temporary.appending(path: "thread-writer-locks"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let id = "11111111-2222-3333-4444-777777777777"
+        let initialLines = [
+            #"{"timestamp":"2026-08-29T16:00:00.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/TailCatchUp","model":"gpt-test"}}"#,
+            #"{"timestamp":"2026-08-29T16:00:01.000Z","type":"event_msg","payload":{"type":"task_started"}}"#,
+            #"{"timestamp":"2026-08-29T16:00:02.000Z","type":"response_item","payload":{"type":"reasoning"}}"#
+        ]
+        let file = sessionDirectory.appending(path: "rollout-2026-08-29T16-00-00-\(id).jsonl")
+        try Data((initialLines.joined(separator: "\n") + "\n").utf8).write(to: file)
+
+        let monitor = LocalSessionMonitor(
+            codexHomeURL: temporary,
+            clock: FixedClock(now: ISO8601DateFormatter().date(from: "2026-08-29T16:00:10Z")!),
+            maintenanceInterval: .milliseconds(25),
+            watchesFilesystemEvents: false
+        )
+        let stream = await monitor.snapshots()
+        var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.first?.activity == .thinking)
+
+        let oversizedIrrelevantRecord = #"{"timestamp":"2026-08-29T16:00:03.000Z","type":"response_item","payload":{"content":"\#(String(repeating: "x", count: 10 * 1_024 * 1_024))"}}"#
+        let completion = #"{"timestamp":"2026-08-29T16:00:04.000Z","type":"event_msg","payload":{"type":"task_complete"}}"#
+        let handle = try FileHandle(forWritingTo: file)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data((oversizedIrrelevantRecord + "\n" + completion + "\n").utf8))
+        try handle.close()
+
+        try await Task.sleep(for: .milliseconds(200))
+        await monitor.stop()
+        let updated = await iterator.next()
+
+        #expect(updated?.first?.state == .recent)
+        #expect(updated?.first?.activity == .waiting)
+        #expect(updated?.first?.turnStartedAt == nil)
+    }
+
+    @Test func taskIDCreationDateLocatesResumedRolloutDay() throws {
+        let date = try #require(LocalSessionMonitor.creationDate(
+            fromTaskID: "01a025ed-8084-7551-9e8d-7288c78518ce"
+        ))
+        #expect(ISO8601DateFormatter().string(from: date) == "2026-08-21T20:05:17Z")
+        #expect(LocalSessionMonitor.creationDate(
+            fromTaskID: "11111111-2222-3333-4444-555555555555"
+        ) == nil)
+    }
+
+    @Test func lockedLargeRolloutRemainsLiveWhenBoundedTailStartsAfterTaskStart() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let sessionDirectory = temporary.appending(path: "sessions/2026/08/21", directoryHint: .isDirectory)
+        let lockDirectory = temporary.appending(path: "thread-writer-locks", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: lockDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+
+        let id = "01a025ed-8084-7551-9e8d-7288c78518ce"
+        let lines = [
+            #"{"timestamp":"2026-08-21T20:05:17.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Resumed","model":"gpt-test"}}"#,
+            #"{"timestamp":"2026-08-21T20:06:00.000Z","type":"event_msg","payload":{"type":"task_complete"}}"#,
+            String(repeating: "x", count: 6 * 1_024 * 1_024),
+            #"{"timestamp":"2026-08-29T11:59:00.000Z","type":"event_msg","payload":{"type":"task_started"}}"#,
+            String(repeating: "y", count: 18 * 1_024 * 1_024),
+            #"{"timestamp":"2026-08-29T12:00:00.000Z","type":"response_item","payload":{"type":"reasoning"}}"#
+        ]
+        let file = sessionDirectory.appending(path: "rollout-2026-08-21T20-05-17-\(id).jsonl")
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
+
+        let lock = lockDirectory.appending(path: "\(id).lock")
+        #expect(FileManager.default.createFile(atPath: lock.path, contents: Data()))
+        let lockDescriptor = open(lock.path, O_RDONLY | O_CLOEXEC)
+        #expect(lockDescriptor >= 0)
+        defer {
+            if lockDescriptor >= 0 {
+                flock(lockDescriptor, LOCK_UN)
+                close(lockDescriptor)
+            }
+        }
+        #expect(flock(lockDescriptor, LOCK_EX | LOCK_NB) == 0)
+
+        let monitor = LocalSessionMonitor(
+            codexHomeURL: temporary,
+            clock: FixedClock(now: ISO8601DateFormatter().date(from: "2026-08-29T12:00:10Z")!)
+        )
+        let stream = await monitor.snapshots()
+        var iterator = stream.makeAsyncIterator()
+        let result = await iterator.next()
+        await monitor.stop()
+
+        #expect(result?.count == 1)
+        #expect(result?.first?.id == id)
+        #expect(result?.first?.state == .running)
+        #expect(result?.first?.activity == .thinking)
     }
 
     @Test func localSessionMonitorSkipsOversizedContentAndIgnoresPropertyOrder() async throws {
@@ -567,18 +1370,21 @@ struct CodexGaugeTests {
         #expect(result?.first?.latestContextPercent == 0.6)
     }
 
-    @Test func localSessionMonitorBoundsRecentRootTasksAtTwoHundred() async throws {
+    @Test func localSessionMonitorKeepsAllLiveTasksPlusTwoHundredRecentTasks() async throws {
         let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         let sessionDirectory = temporary.appending(path: "sessions/2026/08/23", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: sessionDirectory, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: temporary.appending(path: "thread-writer-locks"), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
 
-        for index in 0..<205 {
+        for index in 0..<210 {
             let id = String(format: "00000000-0000-0000-0000-%012d", index)
-            let line = #"{"timestamp":"2026-08-23T15:00:00.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Task-\#(index)","model":"gpt-test"}}"#
+            var lines = [#"{"timestamp":"2026-08-23T15:00:00.000Z","type":"session_meta","payload":{"id":"\#(id)","cwd":"/tmp/Task-\#(index)","model":"gpt-test"}}"#]
+            if index >= 205 {
+                lines.append(#"{"timestamp":"2026-08-23T15:00:01.000Z","type":"event_msg","payload":{"type":"task_started"}}"#)
+            }
             let file = sessionDirectory.appending(path: "rollout-2026-08-23T15-00-00-\(id).jsonl")
-            try Data((line + "\n").utf8).write(to: file)
+            try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
         }
 
         let monitor = LocalSessionMonitor(
@@ -590,7 +1396,9 @@ struct CodexGaugeTests {
         let result = await iterator.next()
         await monitor.stop()
 
-        #expect(result?.count == 200)
+        #expect(result?.count == 205)
+        #expect(result?.filter(\.isLive).count == 5)
+        #expect(result?.filter { !$0.isLive }.count == 200)
     }
 
     @Test func activitySeriesUsesCalendarBoundariesAndZeroFillsMissingDays() {
@@ -667,6 +1475,83 @@ struct CodexGaugeTests {
         )
     }
 
+    private func menuBarSnapshot(now: Date) -> AccountSnapshot {
+        AccountSnapshot(
+            accountType: "chatgpt",
+            plan: "pro",
+            buckets: [
+                QuotaBucket(
+                    id: "codex",
+                    name: "Codex",
+                    plan: "pro",
+                    windows: [
+                        QuotaWindow(
+                            id: "codex-primary",
+                            kind: "Primary",
+                            usedPercent: 38,
+                            durationMinutes: 300,
+                            resetsAt: now.addingTimeInterval(8_400)
+                        ),
+                        QuotaWindow(
+                            id: "codex-secondary",
+                            kind: "Secondary",
+                            usedPercent: 72,
+                            durationMinutes: 10_080,
+                            resetsAt: now.addingTimeInterval(240_000)
+                        )
+                    ],
+                    credits: nil,
+                    spendControl: nil,
+                    spendControlReached: false,
+                    reachedReason: nil
+                ),
+                QuotaBucket(
+                    id: "codex-spark",
+                    name: "Codex Spark",
+                    plan: "pro",
+                    windows: [
+                        QuotaWindow(
+                            id: "spark-primary",
+                            kind: "Primary",
+                            usedPercent: 95,
+                            durationMinutes: 1_440,
+                            resetsAt: now.addingTimeInterval(52_000)
+                        )
+                    ],
+                    credits: nil,
+                    spendControl: nil,
+                    spendControlReached: false,
+                    reachedReason: nil
+                )
+            ],
+            earnedResetCount: nil,
+            activity: .empty,
+            fetchedAt: now
+        )
+    }
+
+    private func singleWindowSnapshot(window: QuotaWindow, now: Date) -> AccountSnapshot {
+        AccountSnapshot(
+            accountType: "chatgpt",
+            plan: "pro",
+            buckets: [
+                QuotaBucket(
+                    id: "codex",
+                    name: "Codex",
+                    plan: "pro",
+                    windows: [window],
+                    credits: nil,
+                    spendControl: nil,
+                    spendControlReached: false,
+                    reachedReason: nil
+                )
+            ],
+            earnedResetCount: nil,
+            activity: .empty,
+            fetchedAt: now
+        )
+    }
+
     private func window(id: String, remaining: Int) -> QuotaWindow {
         QuotaWindow(id: id, kind: "Primary", usedPercent: 100 - remaining, durationMinutes: nil, resetsAt: nil)
     }
@@ -698,4 +1583,21 @@ struct CodexGaugeTests {
 
 private struct FixedClock: ClockProviding {
     let now: Date
+}
+
+private final class AdjustableClock: ClockProviding, @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Date
+
+    init(now: Date) {
+        value = now
+    }
+
+    var now: Date {
+        lock.withLock { value }
+    }
+
+    func advance(by interval: TimeInterval) {
+        lock.withLock { value = value.addingTimeInterval(interval) }
+    }
 }

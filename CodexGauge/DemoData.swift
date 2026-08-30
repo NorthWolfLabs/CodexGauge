@@ -62,7 +62,13 @@ enum DemoData {
                     plan: "pro",
                     windows: [
                         QuotaWindow(id: "codex-primary", kind: "Primary", usedPercent: arguments.contains("-uiTestLowAllowances") ? 97 : 38, durationMinutes: 300, resetsAt: now.addingTimeInterval(8_400)),
-                        QuotaWindow(id: "codex-secondary", kind: "Secondary", usedPercent: 72, durationMinutes: 10_080, resetsAt: now.addingTimeInterval(240_000))
+                        QuotaWindow(
+                            id: "codex-secondary",
+                            kind: "Secondary",
+                            usedPercent: 72,
+                            durationMinutes: arguments.contains("-uiTestMissingResetMetadata") ? nil : 10_080,
+                            resetsAt: arguments.contains("-uiTestMissingResetMetadata") ? nil : now.addingTimeInterval(240_000)
+                        )
                     ],
                     credits: CreditSnapshot(hasCredits: true, unlimited: false, balance: "12.50"),
                     spendControl: nil,
@@ -132,6 +138,23 @@ enum DemoData {
         ]
         state.conversations += (0..<14).map { recentConversation(offset: $0, now: now) }
         state.hasLoadedConversations = true
+        if arguments.contains("-uiTestMenuBarCustomization") {
+            var configuration = state.settings.menuBarConfiguration
+            configuration.primaryAllowance = .specific(bucketID: "codex", windowID: "codex-secondary")
+            configuration.secondaryAllowance = .specific(bucketID: "codex", windowID: "codex-primary")
+            configuration.resetDisplay = .timeRemaining
+            configuration.showsSuggestedPace = true
+            configuration.suggestedPaceDisplay = .remainingTarget
+            configuration.colorMode = .trafficLight
+            configuration.colorBasis = .combined
+            configuration.colorTarget = .gaugeAndValues
+            state.settings.menuBarConfiguration = configuration
+        } else if arguments.contains("-uiTestMissingMenuBarSelection") {
+            var configuration = state.settings.menuBarConfiguration
+            configuration.primaryAllowance = .specific(bucketID: "removed", windowID: "removed-primary")
+            configuration.secondaryAllowance = .specific(bucketID: "removed", windowID: "removed-secondary")
+            state.settings.menuBarConfiguration = configuration
+        }
         if arguments.contains("-uiTestLoading") {
             state.accountSnapshot = nil
             state.conversations = []

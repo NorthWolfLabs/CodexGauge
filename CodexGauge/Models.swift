@@ -167,7 +167,13 @@ struct QuotaWindow: Identifiable, Codable, Hashable, Sendable {
         let duration = TimeInterval(durationMinutes * 60)
         let start = resetsAt.addingTimeInterval(-duration)
         let elapsed = now.timeIntervalSince(start)
-        guard elapsed > 60, elapsed < duration else { return nil }
+        // The service reports whole percentage points. Extrapolating one of
+        // those coarse samples immediately after a reset can turn normal use
+        // into a false projected-exhaustion warning. Wait until at least 5% of
+        // the window (and at least 15 minutes) has elapsed before presenting a
+        // pacing estimate.
+        let minimumReliableElapsed = max(15 * 60, duration * 0.05)
+        guard elapsed >= minimumReliableElapsed, elapsed < duration else { return nil }
 
         let elapsedPercent = elapsed / duration * 100
         let rate = Double(usedPercent) / elapsed

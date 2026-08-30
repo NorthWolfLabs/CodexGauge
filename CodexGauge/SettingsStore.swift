@@ -17,6 +17,7 @@ final class SettingsStore {
         static let quotaNotifications = "quotaNotifications"
         static let attentionNotifications = "attentionNotifications"
         static let notificationThresholds = "notificationThresholds"
+        static let menuBarConfiguration = "menuBarConfiguration"
     }
 
     private let defaults: UserDefaults
@@ -53,6 +54,18 @@ final class SettingsStore {
             defaults.set(notificationThresholds, forKey: Key.notificationThresholds)
         }
     }
+    var menuBarConfiguration: MenuBarConfiguration {
+        didSet {
+            let normalized = menuBarConfiguration.normalized
+            if menuBarConfiguration != normalized {
+                menuBarConfiguration = normalized
+                return
+            }
+            if let data = try? JSONEncoder().encode(menuBarConfiguration) {
+                defaults.set(data, forKey: Key.menuBarConfiguration)
+            }
+        }
+    }
     var launchAtLogin: Bool
     var launchAtLoginError: String?
 
@@ -77,6 +90,12 @@ final class SettingsStore {
         quotaNotificationsEnabled = repairsPrereleaseFixture ? false : defaults.bool(forKey: Key.quotaNotifications)
         attentionNotificationsEnabled = defaults.bool(forKey: Key.attentionNotifications)
         notificationThresholds = repairsPrereleaseFixture ? Self.defaultNotificationThresholds : normalizedThresholds
+        if let data = defaults.data(forKey: Key.menuBarConfiguration),
+           let decoded = try? JSONDecoder().decode(MenuBarConfiguration.self, from: data) {
+            menuBarConfiguration = decoded.normalized
+        } else {
+            menuBarConfiguration = .default
+        }
         launchAtLogin = SMAppService.mainApp.status == .enabled
 
         if repairsPrereleaseFixture {
@@ -84,6 +103,10 @@ final class SettingsStore {
             defaults.set(Self.defaultNotificationThresholds, forKey: Key.notificationThresholds)
         }
         defaults.set(Self.preferencesSchemaVersion, forKey: Key.preferencesSchemaVersion)
+    }
+
+    func restoreMenuBarDefaults() {
+        menuBarConfiguration = .default
     }
 
     func updateLaunchAtLogin(_ enabled: Bool) {

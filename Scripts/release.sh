@@ -63,6 +63,7 @@ signing_identity() {
 
 validate_tree() {
   "$project_root/Scripts/check-toolchain.sh"
+  "$project_root/Scripts/check-repository.sh"
   [[ -n "$tag" ]] || fail "HEAD must have an exact release tag"
   [[ "$tag" == "v$version" || "$tag" == "v$version"-rc.<-> ]] \
     || fail "tag $tag does not match app version $version"
@@ -191,13 +192,17 @@ write_artifacts() {
   "team": "$team_id"
 }
 EOF
+  # SHA256SUMS ships beside the DMG and therefore references only the public
+  # download. Release-engineering records remain local and use a separate
+  # integrity file so a user's `shasum -c` never reports missing internal files.
+  (cd "$release_root" && shasum -a 256 "$dmg_path:t" > SHA256SUMS)
   (cd "$release_root" && shasum -a 256 \
     "$dmg_path:t" \
     "$product_name-$tag-dSYMs.zip" \
     app-notarization.json \
     dmg-notarization.json \
     build-manifest.json \
-    > SHA256SUMS)
+    > INTERNAL-SHA256SUMS)
 }
 
 verify_release() {
@@ -208,6 +213,7 @@ verify_release() {
   spctl --assess --type execute --verbose=4 "$app_path"
   spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg_path"
   (cd "$release_root" && shasum -a 256 -c SHA256SUMS)
+  (cd "$release_root" && shasum -a 256 -c INTERNAL-SHA256SUMS)
 }
 
 run_performance() {
@@ -251,7 +257,8 @@ run_all() {
   notarize_dmg
   write_artifacts
   verify_release
-  print "Release artifacts: $release_root"
+  print "Public release assets: $dmg_path and $release_root/SHA256SUMS"
+  print "Internal release records: $release_root"
 }
 
 case "${1:-all}" in

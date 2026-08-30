@@ -4,6 +4,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-29
+
 - Restored near-live local task updates with a bounded one-second fallback for known live tasks and immediate tail catch-up for large rollouts.
 - Made live rates easier to follow with calm integer-only numeric transitions and a continuously flowing, noninteractive Dashboard graph.
 - Replaced cliff-edge token windows with time-weighted rates that decay every second during tool use and other pauses, without reporting new token usage.
@@ -12,6 +14,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 - Added native menu-bar customization for allowance selection, optional comparison values, reset timing, usage-amount or remaining-target pace estimates, and accessible semantic status colors.
 - Clarified dependent menu-bar settings, repaired invalid color-target combinations, restored native menu-bar contrast, confirmed destructive resets, and made Settings reliably take keyboard focus.
 - Prevented unreliable pacing alerts immediately after allowance resets, improved the status symbol’s menu-bar sizing, shortened color guidance, and added a clear explanation for genuine warnings at the top of the popover.
+- Streamlined GitHub release downloads to the signed DMG and its checksum while retaining debug symbols, build metadata, and notarization receipts as release-engineering records.
+- Made the local Release performance gate produce an isolated ad-hoc-signed app so current macOS versions can execute the harness without changing production signing.
 
 ## [1.0.0] - 2026-08-24
 

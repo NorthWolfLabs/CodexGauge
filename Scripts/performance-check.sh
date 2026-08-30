@@ -24,7 +24,8 @@ else
     -configuration Release \
     -destination 'platform=macOS,arch=arm64' \
     -derivedDataPath "$derived_data" \
-    ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
   app_path="$derived_data/Build/Products/Release/CodexGauge.app"
 fi
 

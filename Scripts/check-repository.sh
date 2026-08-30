@@ -25,13 +25,31 @@ tracked_artifacts="$(git ls-files | grep -E '(^|/)(DerivedData|TestArtifacts|xcu
 [[ -z "$tracked_artifacts" ]] || { print -u2 "Generated or sensitive files are tracked:\n$tracked_artifacts"; exit 1; }
 
 project_file="CodexGauge.xcodeproj/project.pbxproj"
+object_version="$(sed -nE 's/^[[:space:]]*objectVersion = ([0-9]+);/\1/p' "$project_file")"
+preferred_object_version="$(sed -nE 's/^[[:space:]]*preferredProjectObjectVersion = ([0-9]+);/\1/p' "$project_file")"
+[[ -n "$object_version" && "$object_version" == "$preferred_object_version" ]] || {
+  print -u2 "The Xcode project format ($object_version) does not match its stable preferred format ($preferred_object_version)."
+  exit 1
+}
+
+marketing_versions="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION = ([^;]+);/\1/p' "$project_file" | sort -u)"
+[[ "$(print -r -- "$marketing_versions" | wc -l | tr -d ' ')" == 1 ]] \
+  && print -r -- "$marketing_versions" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+  || { print -u2 "MARKETING_VERSION must be one consistent semantic version."; exit 1; }
+grep -Fq "## [$marketing_versions]" CHANGELOG.md \
+  || { print -u2 "CHANGELOG.md has no release section for $marketing_versions."; exit 1; }
+
+build_numbers="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION = ([^;]+);/\1/p' "$project_file" | sort -u)"
+[[ "$(print -r -- "$build_numbers" | wc -l | tr -d ' ')" == 1 ]] \
+  && print -r -- "$build_numbers" | grep -Eq '^[1-9][0-9]*$' \
+  || { print -u2 "CURRENT_PROJECT_VERSION must be one consistent positive integer."; exit 1; }
+
 grep -Eq 'MACOSX_DEPLOYMENT_TARGET = 14\.4;' "$project_file"
 grep -Eq 'ARCHS = arm64;' "$project_file"
 grep -Eq 'ENABLE_HARDENED_RUNTIME = YES;' "$project_file"
 grep -Eq 'ENABLE_APP_SANDBOX = NO;' "$project_file"
 grep -Eq 'ENABLE_CODE_COVERAGE = NO;' "$project_file"
 grep -Eq 'INFOPLIST_KEY_LSUIElement = YES;' "$project_file"
-grep -Eq 'MARKETING_VERSION = 1\.0\.0;' "$project_file"
 grep -Eq 'public\.app-category\.developer-tools' "$project_file"
 grep -Eq 'Copyright © 2026 North Wolf Labs LLC' "$project_file"
 if grep -A4 'membershipExceptions = (' "$project_file" | grep -Fq 'AppIcon.icon'; then
@@ -60,6 +78,16 @@ non_persisting_count="$(grep -Rh 'persist-credentials: false' .github/workflows 
 
 if grep -REn '(DEVELOPER_ID_P12_BASE64|DEVELOPER_ID_P12_PASSWORD|ASC_API_KEY_P8_BASE64|ASC_API_KEY_ID|ASC_API_ISSUER_ID):[[:space:]]+[^$[:space:]]' .github; then
   print -u2 "A release secret appears to be embedded in source."
+  exit 1
+fi
+
+public_release_block="$(sed -n '/gh release create/,/--draft/p' .github/workflows/release.yml)"
+[[ "$public_release_block" == *'CodexGauge-$RELEASE_TAG.dmg'* ]] \
+  || { print -u2 'The public release must include the versioned DMG.'; exit 1; }
+[[ "$public_release_block" == *'$root/SHA256SUMS'* ]] \
+  || { print -u2 'The public release must include SHA256SUMS.'; exit 1; }
+if print -r -- "$public_release_block" | grep -Eq 'dSYMs|notarization\.json|build-manifest\.json|INTERNAL-SHA256SUMS'; then
+  print -u2 "Internal release records must not be published as GitHub Release assets."
   exit 1
 fi
 

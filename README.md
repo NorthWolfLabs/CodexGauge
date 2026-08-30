@@ -1,8 +1,15 @@
-# CodexGauge
+<p align="center">
+  <img src="CodexGauge/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png" width="128" height="128" alt="CodexGauge app icon">
+</p>
 
-CodexGauge is a native, read-only menu-bar monitor for Codex allowances and activity. It uses the Codex app server and local Codex metadata already available on your Mac, so it does not require another login, API key, or account token.
+<h1 align="center">CodexGauge</h1>
 
-CodexGauge is an independent North Wolf Labs project and is not affiliated with or endorsed by OpenAI or Apple.
+<p align="center">
+  A native, read-only menu-bar monitor for Codex allowances and activity.<br>
+  Uses the Codex app server and local metadata already available on your Mac—no additional login, API key, or account token required.
+</p>
+
+<p align="center"><sub>Independent software from North Wolf Labs. Not affiliated with or endorsed by OpenAI or Apple.</sub></p>
 
 ## Compatibility
 
@@ -117,7 +124,7 @@ Check **Settings > Notifications**. If permission is denied, use **Open Notifica
 
 ## Authentic releases
 
-Official downloads are published through this repository's GitHub Releases page. Release artifacts are signed by North Wolf Labs LLC, notarized by Apple, and accompanied by SHA-256 checksums. Private signing and publication procedures are intentionally not documented in this public repository.
+Official downloads are published through this repository's GitHub Releases page. Starting with version 1.1.0, each release contains the signed and notarized DMG plus a `SHA256SUMS` file for that download. Debug symbols, build records, and notarization receipts are retained separately as release-engineering records. Private signing and publication procedures are intentionally not documented in this public repository.
 
 ## Contributing and support
 

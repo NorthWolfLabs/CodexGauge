@@ -284,7 +284,15 @@ jobs:
           ditto "$app" "$output/dmg-staging/CodexGauge.app"
           ln -s /Applications "$output/dmg-staging/Applications"
           dmg="$output/CodexGauge-$RELEASE_TAG.dmg"
-          hdiutil create -volname CodexGauge -srcfolder "$output/dmg-staging" -ov -format UDZO "$dmg"
+          /usr/sbin/diskutil image create from --help >/dev/null 2>&1 || {
+            print -u2 'This release host does not support diskutil image create from.'
+            exit 1
+          }
+          /usr/sbin/diskutil image create from \
+            --format UDZO \
+            --volumeName CodexGauge \
+            "$output/dmg-staging" \
+            "$dmg"
           codesign --force --timestamp --sign "$identity" "$dmg"
           xcrun notarytool submit "$dmg" --key "$api_key" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" --wait --output-format json | tee "$output/dmg-notarization.json"
           rm -f "$api_key"

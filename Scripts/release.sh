@@ -64,6 +64,8 @@ signing_identity() {
 validate_tree() {
   "$project_root/Scripts/check-toolchain.sh"
   "$project_root/Scripts/check-repository.sh"
+  /usr/sbin/diskutil image create from --help >/dev/null 2>&1 \
+    || fail "this release host does not support diskutil image create from"
   [[ -n "$tag" ]] || fail "HEAD must have an exact release tag"
   [[ "$tag" == "v$version" || "$tag" == "v$version"-rc.<-> ]] \
     || fail "tag $tag does not match app version $version"
@@ -158,7 +160,11 @@ package_dmg() {
   staging="$(mktemp -d "$release_root/dmg-staging.XXXXXX")"
   ditto "$app_path" "$staging/$product_name.app"
   ln -s /Applications "$staging/Applications"
-  hdiutil create -volname "$product_name" -srcfolder "$staging" -ov -format UDZO "$dmg_path"
+  /usr/sbin/diskutil image create from \
+    --format UDZO \
+    --volumeName "$product_name" \
+    "$staging" \
+    "$dmg_path"
   codesign --force --timestamp --options runtime --sign "$identity" "$dmg_path"
   rm -rf "$staging"
 }

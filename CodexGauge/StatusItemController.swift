@@ -2,6 +2,19 @@ import AppKit
 import Observation
 import SwiftUI
 
+final class MainActorNotificationRelay: NSObject {
+    private let action: @MainActor @Sendable () -> Void
+
+    init(action: @escaping @MainActor @Sendable () -> Void) {
+        self.action = action
+    }
+
+    @objc func receive(_ notification: Notification) {
+        let action = action
+        Task { @MainActor in action() }
+    }
+}
+
 @MainActor
 enum StatusItemSymbolRenderer {
     static let configuration = NSImage.SymbolConfiguration(
@@ -61,6 +74,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var expandedDisclosureCount = 0
     private var popoverClock: VisibleSurfaceClock?
     private var statusUpdateTimer: Timer?
+    private lazy var systemTimeNotificationRelay = MainActorNotificationRelay { [weak self] in
+        self?.updateStatusItem()
+    }
 
     init(state: AppState) {
         self.state = state
@@ -409,33 +425,29 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func installSystemTimeObservers() {
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(systemTimeDidChange),
+            systemTimeNotificationRelay,
+            selector: #selector(MainActorNotificationRelay.receive(_:)),
             name: .NSSystemClockDidChange,
             object: nil
         )
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(systemTimeDidChange),
+            systemTimeNotificationRelay,
+            selector: #selector(MainActorNotificationRelay.receive(_:)),
             name: .NSSystemTimeZoneDidChange,
             object: nil
         )
         NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(systemTimeDidChange),
+            systemTimeNotificationRelay,
+            selector: #selector(MainActorNotificationRelay.receive(_:)),
             name: .NSCalendarDayChanged,
             object: nil
         )
         NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(systemTimeDidChange),
+            systemTimeNotificationRelay,
+            selector: #selector(MainActorNotificationRelay.receive(_:)),
             name: NSWorkspace.didWakeNotification,
             object: nil
         )
-    }
-
-    @objc private func systemTimeDidChange() {
-        updateStatusItem()
     }
 
     private var preferredPopoverHeight: CGFloat {

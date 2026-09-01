@@ -45,7 +45,11 @@ build_numbers="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION = ([^;]+);/\1/p
   || { print -u2 "CURRENT_PROJECT_VERSION must be one consistent positive integer."; exit 1; }
 
 grep -Eq 'MACOSX_DEPLOYMENT_TARGET = 14\.4;' "$project_file"
-grep -Eq 'ARCHS = arm64;' "$project_file"
+grep -Fq 'ARCHS = "$(ARCHS_STANDARD)";' "$project_file"
+if grep -Eq 'ARCHS = arm64;' "$project_file"; then
+  print -u2 "The application target must use Standard Architectures for Universal 2 releases."
+  exit 1
+fi
 grep -Eq 'ENABLE_HARDENED_RUNTIME = YES;' "$project_file"
 grep -Eq 'ENABLE_APP_SANDBOX = NO;' "$project_file"
 grep -Eq 'ENABLE_CODE_COVERAGE = NO;' "$project_file"
@@ -82,14 +86,19 @@ if grep -REn '(DEVELOPER_ID_P12_BASE64|DEVELOPER_ID_P12_PASSWORD|ASC_API_KEY_P8_
 fi
 
 public_release_block="$(sed -n '/gh release create/,/--draft/p' .github/workflows/release.yml)"
-[[ "$public_release_block" == *'CodexGauge-$RELEASE_TAG.dmg'* ]] \
-  || { print -u2 'The public release must include the versioned DMG.'; exit 1; }
+[[ "$public_release_block" == *'CodexGauge-$RELEASE_TAG-universal.dmg'* ]] \
+  || { print -u2 'The public release must include the versioned Universal 2 DMG.'; exit 1; }
 [[ "$public_release_block" == *'$root/SHA256SUMS'* ]] \
   || { print -u2 'The public release must include SHA256SUMS.'; exit 1; }
 if print -r -- "$public_release_block" | grep -Eq 'dSYMs|notarization\.json|build-manifest\.json|INTERNAL-SHA256SUMS'; then
   print -u2 "Internal release records must not be published as GitHub Release assets."
   exit 1
 fi
+
+grep -Fq 'universal_architectures=(arm64 x86_64)' Scripts/release.sh
+grep -Fq 'macos-15-intel' .github/workflows/ci.yml
+grep -Fq 'macos-15-intel' .github/workflows/release.yml
+grep -Fq 'Universal 2' README.md
 
 jq -e '.sampleSeconds == 300 and .warmupSeconds == 60 and (.scenarios | length == 5)' Performance/Budgets.json >/dev/null
 zsh -n Scripts/release.sh Scripts/check-toolchain.sh Scripts/check-repository.sh Scripts/performance-check.sh

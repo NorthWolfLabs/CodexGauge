@@ -11,6 +11,12 @@ output_root="${PERFORMANCE_OUTPUT_ROOT:-$project_root/.build/performance}"
 derived_data="$output_root/DerivedData"
 probe="$output_root/performance-probe"
 mode="${PERFORMANCE_MODE:-strict}"
+host_architecture="$(uname -m)"
+execution_architecture="${PERFORMANCE_EXECUTION_ARCH:-$host_architecture}"
+[[ "$execution_architecture" == arm64 || "$execution_architecture" == x86_64 ]] || {
+  print -u2 "performance: unsupported execution architecture $execution_architecture"
+  exit 1
+}
 
 mkdir -p "$output_root"
 xcrun swiftc "$project_root/Scripts/performance-probe.swift" -O -o "$probe"
@@ -22,15 +28,23 @@ else
     -project "$project_root/CodexGauge.xcodeproj" \
     -scheme CodexGauge \
     -configuration Release \
-    -destination 'platform=macOS,arch=arm64' \
+    -destination "platform=macOS,arch=$execution_architecture" \
     -derivedDataPath "$derived_data" \
-    ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+    ARCHS="$execution_architecture" ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
   app_path="$derived_data/Build/Products/Release/CodexGauge.app"
 fi
 
 binary="$app_path/Contents/MacOS/CodexGauge"
 [[ -x "$binary" ]] || { print -u2 "performance: app executable is missing at $binary"; exit 1; }
+lipo "$binary" -verify_arch "$execution_architecture" >/dev/null 2>&1 || {
+  print -u2 "performance: app has no $execution_architecture slice"
+  exit 1
+}
+launch_command=("$binary")
+if [[ "$execution_architecture" == x86_64 && "$host_architecture" == arm64 ]]; then
+  launch_command=(/usr/bin/arch -x86_64 "$binary")
+fi
 if pgrep -x CodexGauge >/dev/null; then
   print -u2 "performance: quit every other CodexGauge instance before running the gate"
   exit 1
@@ -126,7 +140,8 @@ run_scenario() {
   result="$output_root/$scenario.json"
   process_log="$output_root/$scenario-process.log"
   runtime_log="$output_root/$scenario-runtime.log"
-  "$binary" "${arguments[@]}" > "$process_log" 2>&1 &
+  print "PERFORMANCE_ARCHITECTURE $execution_architecture" > "$process_log"
+  "${launch_command[@]}" "${arguments[@]}" >> "$process_log" 2>&1 &
   pid=$!
   cleanup_scenario() {
     if [[ -n "${pid:-}" ]]; then

@@ -6,6 +6,7 @@ team_id="ALPX923Y54"
 product_name="CodexGauge"
 project="$project_root/CodexGauge.xcodeproj"
 scheme="CodexGauge"
+universal_architectures=(arm64 x86_64)
 tag="${RELEASE_TAG:-$(git -C "$project_root" describe --tags --exact-match 2>/dev/null || true)}"
 version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION = ([^;]+);/\1/p' "$project/project.pbxproj" | sort -u | head -n 1)"
 build_number="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION = ([^;]+);/\1/p' "$project/project.pbxproj" | sort -u | head -n 1)"
@@ -14,12 +15,22 @@ archive_path="$release_root/$product_name.xcarchive"
 export_path="$release_root/export"
 app_path="$export_path/$product_name.app"
 zip_path="$release_root/$product_name-$tag.zip"
-dmg_path="$release_root/$product_name-$tag.dmg"
+dmg_path="$release_root/$product_name-$tag-universal.dmg"
 notary_arguments=()
 
 fail() {
   print -u2 "release: $1"
   exit 1
+}
+
+verify_universal_binary() {
+  local binary="$1" archs
+  [[ -f "$binary" ]] || fail "universal executable is missing at $binary"
+  archs="$(lipo -archs "$binary")"
+  [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]] \
+    || fail "the app does not contain both arm64 and x86_64 slices: $archs"
+  [[ "$(print -r -- "$archs" | wc -w | tr -d ' ')" == 2 ]] \
+    || fail "the app contains unexpected architecture slices: $archs"
 }
 
 reject_release_diagnostics() {
@@ -80,23 +91,27 @@ validate_tree() {
 
 run_tests() {
   mkdir -p "$release_root"
-  local started test_log runtime_log
-  started="$(date '+%Y-%m-%d %H:%M:%S')"
-  test_log="$release_root/tests.log"
-  runtime_log="$release_root/runtime.log"
-  xcodebuild test \
-    -project "$project" \
-    -scheme "$scheme" \
-    -configuration Debug \
-    -destination 'platform=macOS,arch=arm64' \
-    -resultBundlePath "$release_root/Tests.xcresult" \
-    ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
-    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= 2>&1 | tee "$test_log"
-  /usr/bin/log show --start "$started" --style compact \
-    --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
-    > "$runtime_log" || true
-  reject_release_diagnostics "$test_log"
-  reject_release_diagnostics "$runtime_log" xctest-runtime
+  local architecture started test_log runtime_log result_bundle
+  for architecture in "${universal_architectures[@]}"; do
+    started="$(date '+%Y-%m-%d %H:%M:%S')"
+    test_log="$release_root/tests-$architecture.log"
+    runtime_log="$release_root/runtime-$architecture.log"
+    result_bundle="$release_root/Tests-$architecture.xcresult"
+    xcodebuild test \
+      -project "$project" \
+      -scheme "$scheme" \
+      -configuration Debug \
+      -destination "platform=macOS,arch=$architecture" \
+      -derivedDataPath "$release_root/TestDerivedData" \
+      -resultBundlePath "$result_bundle" \
+      ARCHS="$architecture" ONLY_ACTIVE_ARCH=NO \
+      CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= 2>&1 | tee "$test_log"
+    /usr/bin/log show --start "$started" --style compact \
+      --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
+      > "$runtime_log" || true
+    reject_release_diagnostics "$test_log"
+    reject_release_diagnostics "$runtime_log" xctest-runtime
+  done
 }
 
 archive_app() {
@@ -110,7 +125,7 @@ archive_app() {
     -configuration Release \
     -destination 'generic/platform=macOS' \
     -archivePath "$archive_path" \
-    ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+    ARCHS="${universal_architectures[*]}" ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$identity" DEVELOPMENT_TEAM="$team_id" \
     2>&1 | tee "$release_root/archive.log"
   reject_release_diagnostics "$release_root/archive.log"
@@ -127,7 +142,7 @@ export_app() {
 verify_app_signature() {
   [[ -d "$app_path" ]] || fail "exported app is missing"
   codesign --verify --deep --strict --verbose=2 "$app_path"
-  [[ "$(lipo -archs "$app_path/Contents/MacOS/$product_name")" == "arm64" ]] || fail "the app is not arm64-only"
+  verify_universal_binary "$app_path/Contents/MacOS/$product_name"
   local details entitlements
   details="$(codesign -dvvv "$app_path" 2>&1)"
   [[ "$details" == *"Authority=Developer ID Application: North Wolf Labs LLC ($team_id)"* ]] \
@@ -191,7 +206,8 @@ write_artifacts() {
   "tag": "$tag",
   "build": "$build_number",
   "commit": "$commit",
-  "architecture": "arm64",
+  "architecture": "universal2",
+  "architectures": ["arm64", "x86_64"],
   "deploymentTarget": "14.4",
   "xcode": "$xcode_version",
   "sdk": "$sdk_version",
@@ -229,6 +245,15 @@ run_performance() {
     "$project_root/Scripts/performance-check.sh"
 }
 
+run_intel_smoke() {
+  [[ -d "$app_path" ]] || fail "export the Release app before running the Intel smoke test"
+  PERFORMANCE_MODE=smoke \
+    PERFORMANCE_EXECUTION_ARCH=x86_64 \
+    PERFORMANCE_APP_PATH="$app_path" \
+    PERFORMANCE_OUTPUT_ROOT="$release_root/performance-x86_64-smoke" \
+    "$project_root/Scripts/performance-check.sh"
+}
+
 smoke_test_dmg() {
   [[ -f "$dmg_path" ]] || fail "package the DMG before running its smoke test"
   local mount_point
@@ -240,8 +265,18 @@ smoke_test_dmg() {
   trap cleanup_dmg_smoke EXIT INT TERM
   hdiutil attach "$dmg_path" -readonly -nobrowse -mountpoint "$mount_point" -quiet
   if ! PERFORMANCE_MODE=smoke \
+    PERFORMANCE_EXECUTION_ARCH=arm64 \
     PERFORMANCE_APP_PATH="$mount_point/$product_name.app" \
-    PERFORMANCE_OUTPUT_ROOT="$release_root/dmg-smoke-results" \
+    PERFORMANCE_OUTPUT_ROOT="$release_root/dmg-smoke-results-arm64" \
+    "$project_root/Scripts/performance-check.sh"; then
+    cleanup_dmg_smoke
+    trap - EXIT INT TERM
+    return 1
+  fi
+  if ! PERFORMANCE_MODE=smoke \
+    PERFORMANCE_EXECUTION_ARCH=x86_64 \
+    PERFORMANCE_APP_PATH="$mount_point/$product_name.app" \
+    PERFORMANCE_OUTPUT_ROOT="$release_root/dmg-smoke-results-x86_64" \
     "$project_root/Scripts/performance-check.sh"; then
     cleanup_dmg_smoke
     trap - EXIT INT TERM
@@ -257,13 +292,14 @@ run_all() {
   archive_app
   export_app
   run_performance
+  run_intel_smoke
   notarize_app
   package_dmg
   smoke_test_dmg
   notarize_dmg
   write_artifacts
   verify_release
-  print "Public release assets: $dmg_path and $release_root/SHA256SUMS"
+  print "Universal 2 public release assets: $dmg_path and $release_root/SHA256SUMS"
   print "Internal release records: $release_root"
 }
 
@@ -278,7 +314,8 @@ case "${1:-all}" in
   artifacts) write_artifacts ;;
   verify) verify_release ;;
   performance) run_performance ;;
+  intel-smoke) run_intel_smoke ;;
   smoke-dmg) smoke_test_dmg ;;
   all) run_all ;;
-  *) fail "unknown stage '$1' (validate, test, archive, export, performance, notarize-app, package, smoke-dmg, notarize-dmg, artifacts, verify, all)" ;;
+  *) fail "unknown stage '$1' (validate, test, archive, export, performance, intel-smoke, notarize-app, package, smoke-dmg, notarize-dmg, artifacts, verify, all)" ;;
 esac

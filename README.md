@@ -13,12 +13,12 @@
 
 ## Compatibility
 
-- Apple Silicon only (`arm64`)
+- Apple Silicon and Intel (`arm64` + `x86_64` Universal 2)
 - macOS 14.4 or later
 - An installed and signed-in ChatGPT or Codex app, or a compatible Codex executable
-- Public releases are validated on macOS 14.4 and the current macOS 26 release line
+- Public releases are validated on Apple silicon, an Intel Mac, macOS 14.4, and the current macOS release line
 
-Intel Macs are not supported.
+Intel support begins with CodexGauge 1.2.0. CodexGauge 1.1.1 and earlier remain Apple-silicon-only releases.
 
 ## What it shows
 
@@ -37,7 +37,7 @@ Warnings Only keeps normal values monochrome and adds yellow or red only when an
 
 ## Installation
 
-1. Download the DMG from the repository’s Releases page.
+1. Download the `universal.dmg` from the repository’s Releases page. The same app runs natively on Apple silicon and Intel Macs.
 2. Verify the checksum in `SHA256SUMS`:
 
    ```sh
@@ -83,16 +83,18 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./Scripts/check-toolcha
 
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 xcodebuild build -project CodexGauge.xcodeproj -scheme CodexGauge \
-  -configuration Debug -destination 'platform=macOS,arch=arm64' \
-  CODE_SIGNING_ALLOWED=NO
+  -configuration Release -destination 'generic/platform=macOS' \
+  ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
 
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
-xcodebuild test -project CodexGauge.xcodeproj -scheme CodexGauge \
-  -destination 'platform=macOS,arch=arm64' \
-  CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+for architecture in arm64 x86_64; do
+  DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project CodexGauge.xcodeproj -scheme CodexGauge \
+    -destination "platform=macOS,arch=$architecture" ARCHS="$architecture" \
+    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
+done
 ```
 
-UI tests require macOS Accessibility/Automation permission for Xcode’s test runner. CI performs them on clean runners. The macOS 14 compatibility job records and uses the newest Xcode supported by that runner; release artifacts are built only with the exact toolchain in `.xcode-version`.
+An Apple-silicon development Mac can execute both test commands; Xcode runs the `x86_64` test process through Rosetta. An Intel development Mac runs the `x86_64` tests and can still compile the Universal 2 archive. UI tests require macOS Accessibility/Automation permission for Xcode’s test runner. CI performs them on clean Apple-silicon and Intel runners. The macOS 14 compatibility job records and uses the newest Xcode supported by that runner; release artifacts are built only with the exact toolchain in `.xcode-version`.
 
 Every local release also runs a deterministic 25-minute Release-mode resource gate. Quit other CodexGauge instances before running it:
 
@@ -102,7 +104,7 @@ Every local release also runs a deterministic 25-minute Release-mode resource ga
 
 The committed budgets require a closed app to average under 1% CPU and remain below 100 MB physical footprint, with separate limits for visible and expanded surfaces. See [Performance/README.md](Performance/README.md) for scenarios, measurements, and diagnostic artifacts.
 
-The application target uses macOS 14.4, hardened runtime, no App Sandbox, `LSUIElement`, and an arm64-only Release architecture. The checked-in Icon Composer source is compiled with the asset catalog so current macOS releases use the native layered icon and older supported releases receive Xcode's compatibility representation.
+The application target uses macOS 14.4, hardened runtime, no App Sandbox, `LSUIElement`, and the Standard Architectures setting. Release archives contain exactly the native `arm64` and `x86_64` slices. The checked-in Icon Composer source is compiled with the asset catalog so current macOS releases use the native layered icon and older supported releases receive Xcode's compatibility representation.
 
 ## Troubleshooting
 
@@ -124,7 +126,7 @@ Check **Settings > Notifications**. If permission is denied, use **Open Notifica
 
 ## Authentic releases
 
-Official downloads are published through this repository's GitHub Releases page. Starting with version 1.1.0, each release contains the signed and notarized DMG plus a `SHA256SUMS` file for that download. Debug symbols, build records, and notarization receipts are retained separately as release-engineering records. Private signing and publication procedures are intentionally not documented in this public repository.
+Official downloads are published through this repository's GitHub Releases page. Starting with version 1.2.0, the `-universal.dmg` contains both Apple-silicon and Intel slices; a separate architecture-specific download is unnecessary. Each release also contains a `SHA256SUMS` file for that download. Debug symbols, build records, and notarization receipts are retained separately as release-engineering records. Private signing and publication procedures are intentionally not documented in this public repository.
 
 ## Contributing and support
 

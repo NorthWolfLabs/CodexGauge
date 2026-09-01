@@ -67,17 +67,30 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   compatibility:
-    name: Compatibility · macOS ${{ matrix.macos }}
+    name: Compatibility · ${{ matrix.name }}
     needs: validate
     strategy:
       fail-fast: false
       matrix:
-        macos: [14, 26]
         include:
-          - macos: 14
+          - name: macOS 14 · Apple silicon
+            id: macos-14-arm64
+            macos: 14
             runner: macos-14
-          - macos: 26
+            arch: arm64
+            current_toolchain: false
+          - name: macOS 26 · Apple silicon
+            id: macos-26-arm64
+            macos: 26
             runner: macos-26
+            arch: arm64
+            current_toolchain: true
+          - name: macOS 15 · Intel
+            id: macos-15-x86_64
+            macos: 15
+            runner: macos-15-intel
+            arch: x86_64
+            current_toolchain: false
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Check out validated source
@@ -89,7 +102,7 @@ jobs:
         shell: zsh {0}
         run: |
           set -euo pipefail
-          if [[ "${{ matrix.macos }}" == 26 ]]; then
+          if [[ "${{ matrix.current_toolchain }}" == true ]]; then
             candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
             [[ -n "$candidate" ]] || { print -u2 'Xcode 26.6 is unavailable'; exit 1; }
             sudo xcode-select --switch "$candidate/Contents/Developer"
@@ -104,28 +117,35 @@ jobs:
         shell: zsh {0}
         run: |
           set -euo pipefail
-          log_file="$RUNNER_TEMP/release-gate-${{ matrix.macos }}.log"
+          log_file="$RUNNER_TEMP/release-gate-${{ matrix.id }}.log"
           started="$(date '+%Y-%m-%d %H:%M:%S')"
           xcodebuild test \
             -project CodexGauge.xcodeproj \
             -scheme CodexGauge \
             -configuration Debug \
-            -destination 'platform=macOS,arch=arm64' \
-            -resultBundlePath "$RUNNER_TEMP/Release-${{ matrix.macos }}.xcresult" \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
+            -destination 'platform=macOS,arch=${{ matrix.arch }}' \
+            -resultBundlePath "$RUNNER_TEMP/Release-${{ matrix.id }}.xcresult" \
+            ARCHS='${{ matrix.arch }}' ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= 2>&1 | tee "$log_file"
           xcodebuild archive \
             -project CodexGauge.xcodeproj \
             -scheme CodexGauge \
             -configuration Release \
             -destination 'generic/platform=macOS' \
-            -archivePath "$RUNNER_TEMP/CodexGauge-${{ matrix.macos }}.xcarchive" \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$log_file"
+            -archivePath "$RUNNER_TEMP/CodexGauge-${{ matrix.id }}.xcarchive" \
+            ARCHS='${{ matrix.arch }}' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$log_file"
           /usr/bin/log show --start "$started" --style compact \
             --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
-            > "$RUNNER_TEMP/release-runtime-${{ matrix.macos }}.log" || true
+            > "$RUNNER_TEMP/release-runtime-${{ matrix.id }}.log" || true
+          # Xcode 26.6 emits this internal testmanager QoS diagnostic while it
+          # attaches a hosted unit-test bundle. Keep the exception exact and
+          # confined to XCTest; every product/runtime warning remains blocking.
+          grep -Ev \
+            'com\.apple\.runtime-issues:Hang Risk.*"message":"\[Internal\] Thread running at User-interactive quality-of-service class waiting on a lower QoS thread running at Default quality-of-service class\. Investigate ways to avoid priority inversions".*"antipattern trigger":"dispatch_semaphore_wait"' \
+            "$RUNNER_TEMP/release-runtime-${{ matrix.id }}.log" \
+            > "$RUNNER_TEMP/release-runtime-filtered-${{ matrix.id }}.log" || true
           if grep -Ei 'com\.apple\.runtime-issues|Invalid frame dimension|negative or non-finite|Custom UnitPoint values are not supported|Charts:|Unable to simultaneously satisfy constraints|Publishing changes from within view updates|AttributeGraph: cycle|main thread as it may lead to UI unresponsiveness|main actor-isolated.*nonisolated|main-thread XCTest|accessibility.*failed|warning:.*(Sendable|actor-isolated|concurr)' \
-            "$log_file" "$RUNNER_TEMP/release-runtime-${{ matrix.macos }}.log"; then
+            "$log_file" "$RUNNER_TEMP/release-runtime-filtered-${{ matrix.id }}.log"; then
             print -u2 'Release-blocking warning or runtime fault detected.'
             exit 1
           fi
@@ -133,11 +153,11 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
-          name: release-gate-macos-${{ matrix.macos }}
+          name: release-gate-${{ matrix.id }}
           path: |
-            ${{ runner.temp }}/Release-${{ matrix.macos }}.xcresult
-            ${{ runner.temp }}/release-gate-${{ matrix.macos }}.log
-            ${{ runner.temp }}/release-runtime-${{ matrix.macos }}.log
+            ${{ runner.temp }}/Release-${{ matrix.id }}.xcresult
+            ${{ runner.temp }}/release-gate-${{ matrix.id }}.log
+            ${{ runner.temp }}/release-runtime-${{ matrix.id }}.log
           if-no-files-found: ignore
           retention-days: 14
 
@@ -172,11 +192,13 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -archivePath "$archive" \
-            ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
+            ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
           app="$archive/Products/Applications/CodexGauge.app"
           binary="$app/Contents/MacOS/CodexGauge"
           [[ -d "$app" && -f "$binary" ]] || { print -u2 'Unsigned app is missing.'; exit 1; }
-          [[ "$(lipo -archs "$binary")" == arm64 ]] || { print -u2 'Unsigned app is not arm64-only.'; exit 1; }
+          archs="$(lipo -archs "$binary")"
+          [[ " $archs " == *' arm64 '* && " $archs " == *' x86_64 '* && "$(wc -w <<< "$archs" | tr -d ' ')" == 2 ]] \
+            || { print -u2 "Unsigned app is not Universal 2: $archs"; exit 1; }
           [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.northwolflabs.CodexGauge ]] || exit 1
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
           [[ "$RELEASE_TAG" == "v$version" || "$RELEASE_TAG" == "v$version"-rc.<-> ]] || exit 1
@@ -189,7 +211,7 @@ jobs:
             --arg product CodexGauge --arg version "$version" --arg tag "$RELEASE_TAG" \
             --arg build "$build" --arg commit "$RELEASE_COMMIT" --arg xcode "$xcode_version" \
             --arg sdk "$sdk_version" --arg team ALPX923Y54 \
-            '{product:$product,version:$version,tag:$tag,build:$build,commit:$commit,architecture:"arm64",deploymentTarget:"14.4",xcode:$xcode,sdk:$sdk,team:$team}' \
+            '{product:$product,version:$version,tag:$tag,build:$build,commit:$commit,architecture:"universal2",architectures:["arm64","x86_64"],deploymentTarget:"14.4",xcode:$xcode,sdk:$sdk,team:$team}' \
             > "$root/payload/build-manifest.json"
           (cd "$root/payload" && shasum -a 256 CodexGauge-unsigned.zip "CodexGauge-$RELEASE_TAG-dSYMs.zip" build-manifest.json > INPUT-SHA256SUMS)
       - name: Upload immutable unsigned input
@@ -255,7 +277,8 @@ jobs:
           [[ -z "$(find "$app" -type l -print -quit)" ]] || { print -u2 'Unsigned app contains a symbolic link.'; exit 1; }
           mach_files=("${(@f)$(find "$app" -type f -print0 | xargs -0 file | awk -F: '/Mach-O/{print $1}')}" )
           [[ "${#mach_files[@]}" == 1 && "${mach_files[1]}" == "$binary" ]] || { print -u2 'Unsigned app contains unexpected executable code.'; exit 1; }
-          [[ "$(lipo -archs "$binary")" == arm64 ]] || exit 1
+          archs="$(lipo -archs "$binary")"
+          [[ " $archs " == *' arm64 '* && " $archs " == *' x86_64 '* && "$(wc -w <<< "$archs" | tr -d ' ')" == 2 ]] || exit 1
           [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.northwolflabs.CodexGauge ]] || exit 1
           print -rn -- "$DEVELOPER_ID_P12_BASE64" | base64 -D > "$p12"
           print -rn -- "$ASC_API_KEY_P8_BASE64" | base64 -D > "$api_key"
@@ -283,7 +306,7 @@ jobs:
           spctl --assess --type execute --verbose=4 "$app"
           ditto "$app" "$output/dmg-staging/CodexGauge.app"
           ln -s /Applications "$output/dmg-staging/Applications"
-          dmg="$output/CodexGauge-$RELEASE_TAG.dmg"
+          dmg="$output/CodexGauge-$RELEASE_TAG-universal.dmg"
           /usr/sbin/diskutil image create from --help >/dev/null 2>&1 || {
             print -u2 'This release host does not support diskutil image create from.'
             exit 1
@@ -305,8 +328,8 @@ jobs:
           # The public checksum must be independently usable with the public DMG.
           # Debug symbols, build metadata, and Apple receipts remain in this
           # internal workflow handoff and are never attached to the release.
-          (cd "$output" && shasum -a 256 "CodexGauge-$RELEASE_TAG.dmg" > SHA256SUMS)
-          (cd "$output" && shasum -a 256 "CodexGauge-$RELEASE_TAG.dmg" "CodexGauge-$RELEASE_TAG-dSYMs.zip" app-notarization.json dmg-notarization.json build-manifest.json > INTERNAL-SHA256SUMS)
+          (cd "$output" && shasum -a 256 "CodexGauge-$RELEASE_TAG-universal.dmg" > SHA256SUMS)
+          (cd "$output" && shasum -a 256 "CodexGauge-$RELEASE_TAG-universal.dmg" "CodexGauge-$RELEASE_TAG-dSYMs.zip" app-notarization.json dmg-notarization.json build-manifest.json > INTERNAL-SHA256SUMS)
           (cd "$output" && shasum -a 256 -c SHA256SUMS)
           (cd "$output" && shasum -a 256 -c INTERNAL-SHA256SUMS)
       - name: Retain internal signed release records
@@ -348,6 +371,6 @@ jobs:
           prerelease=()
           [[ "$RELEASE_PRERELEASE" == true ]] && prerelease=(--prerelease)
           gh release create "$RELEASE_TAG" \
-            "$root/CodexGauge-$RELEASE_TAG.dmg" \
+            "$root/CodexGauge-$RELEASE_TAG-universal.dmg" \
             "$root/SHA256SUMS" \
             --draft --generate-notes --verify-tag "${prerelease[@]}"

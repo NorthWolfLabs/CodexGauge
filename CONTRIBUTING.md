@@ -10,7 +10,7 @@ Thank you for helping improve CodexGauge.
 
 ## Development environment
 
-CodexGauge requires Apple Silicon, macOS 14.4 or later, and the exact stable Xcode release recorded in [.xcode-version](.xcode-version). Confirm it with:
+CodexGauge supports Apple-silicon and Intel development Macs running macOS 14.4 or later. Release work requires the exact stable Xcode release recorded in [.xcode-version](.xcode-version). Confirm it with:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./Scripts/check-toolchain.sh
@@ -20,14 +20,16 @@ Build and test with:
 
 ```sh
 xcodebuild build -project CodexGauge.xcodeproj -scheme CodexGauge \
-  -configuration Debug -destination 'platform=macOS,arch=arm64' CODE_SIGNING_ALLOWED=NO
+  -configuration Release -destination 'generic/platform=macOS' \
+  ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
 
+architecture="$(uname -m)"
 xcodebuild test -project CodexGauge.xcodeproj -scheme CodexGauge \
-  -destination 'platform=macOS,arch=arm64' \
+  -destination "platform=macOS,arch=$architecture" ARCHS="$architecture" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
 ```
 
-The first local UI-test run may ask for Accessibility/Automation permission. Release artifacts use the exact recorded Xcode; the macOS 14 compatibility runner uses the newest Xcode that host supports.
+Apple-silicon contributors should additionally run the `x86_64` tests through Rosetta before changing architecture-sensitive code. The first local UI-test run may ask for Accessibility/Automation permission. Release artifacts use the exact recorded Xcode; compatibility jobs include native Apple-silicon and Intel runners.
 
 ## Pull requests
 

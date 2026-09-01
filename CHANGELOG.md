@@ -4,6 +4,12 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-01
+
+- Added Universal 2 support so one CodexGauge app runs natively on Apple-silicon and Intel Macs running macOS 14.4 or later.
+- Extended local and GitHub release gates to compile and verify both architecture slices, run the Intel slice through Rosetta, and test on a genuine Intel runner when Actions capacity is available.
+- Renamed public disk images with a `-universal.dmg` suffix so architecture support is explicit without separate downloads.
+
 ## [1.1.1] - 2026-09-01
 
 - Fixed an overnight crash caused by macOS delivering its calendar-day change notification on a background queue at midnight.

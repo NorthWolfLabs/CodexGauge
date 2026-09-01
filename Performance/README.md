@@ -17,6 +17,8 @@ PERFORMANCE_APP_PATH=/absolute/path/to/CodexGauge.app \
   ./Scripts/performance-check.sh
 ```
 
+The strict gate runs the host-native slice. Universal release validation additionally runs a short `x86_64` smoke scenario through Rosetta on the Apple-silicon release host and repeats both native and Intel smoke checks from the mounted DMG. Use `PERFORMANCE_EXECUTION_ARCH=x86_64` to select the Intel slice of an existing Universal 2 app.
+
 The strict run takes about 25 minutes. A short installation smoke test is available for development only:
 
 ```sh
@@ -42,4 +44,4 @@ Xcode 26.6 emits one known `[Internal]` priority-inversion diagnostic when `com.
 
 Signposts cover executable validation, session discovery and parsing, snapshot publication, transient-surface construction, and chart updates. On failure, the harness captures Time Profiler, SwiftUI, Allocations, Animation Hitches, and Leaks diagnostics under `.build/performance`; generated results and traces are intentionally not committed.
 
-The release process repeats a short smoke test against the app inside the generated DMG. Clean-machine macOS 14 and macOS 26+ soaks remain manual release-candidate checks because a single machine cannot prove both compatibility targets.
+The release process repeats native and Intel-slice smoke tests against the app inside the generated DMG. Clean-machine macOS 14, current macOS, and genuine Intel soaks remain release-candidate checks because Rosetta cannot fully substitute for Intel hardware.

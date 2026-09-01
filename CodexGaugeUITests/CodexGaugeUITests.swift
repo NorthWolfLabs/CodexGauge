@@ -162,8 +162,8 @@ final class CodexGaugeUITests: XCTestCase {
         capture("07-settings-notifications")
 
         notificationsWindow.buttons[XCUIIdentifierCloseWindow].click()
-        app.typeKey(",", modifierFlags: .command)
-        XCTAssertTrue(app.windows["Notifications"].waitForExistence(timeout: 3), "Command-Comma should reopen the same native Settings window")
+        sendSettingsShortcut(to: app)
+        XCTAssertTrue(app.windows["Notifications"].waitForExistence(timeout: 5), "Command-Comma should reopen the same native Settings window")
         capture("07b-settings-keyboard-shortcut")
 
         statusItem.rightClick()
@@ -189,9 +189,9 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(statusNotice.waitForExistence(timeout: 3), "A colored warning should explain itself at the top of the popover")
         statusItem.click()
 
-        app.typeKey(",", modifierFlags: .command)
+        sendSettingsShortcut(to: app)
         let general = app.windows["General"]
-        XCTAssertTrue(general.waitForExistence(timeout: 3))
+        XCTAssertTrue(general.waitForExistence(timeout: 5))
         general.buttons["Menu Bar"].click()
         let menuBarWindow = app.windows["Menu Bar"]
         XCTAssertTrue(menuBarWindow.waitForExistence(timeout: 3))
@@ -221,10 +221,10 @@ final class CodexGaugeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-uiTestDemo"]
         app.launch()
-        app.typeKey(",", modifierFlags: .command)
+        sendSettingsShortcut(to: app)
 
         let general = app.windows["General"]
-        XCTAssertTrue(general.waitForExistence(timeout: 3))
+        XCTAssertTrue(general.waitForExistence(timeout: 5))
         general.buttons["Menu Bar"].click()
         let menuBarWindow = app.windows["Menu Bar"]
         XCTAssertTrue(menuBarWindow.waitForExistence(timeout: 3))
@@ -251,10 +251,10 @@ final class CodexGaugeUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-uiTestDemo", "-uiTestMissingMenuBarSelection"]
         app.launch()
-        app.typeKey(",", modifierFlags: .command)
+        sendSettingsShortcut(to: app)
 
         let general = app.windows["General"]
-        XCTAssertTrue(general.waitForExistence(timeout: 3))
+        XCTAssertTrue(general.waitForExistence(timeout: 5))
         general.buttons["Menu Bar"].click()
         let menuBarWindow = app.windows["Menu Bar"]
         XCTAssertTrue(menuBarWindow.waitForExistence(timeout: 3))
@@ -307,9 +307,9 @@ final class CodexGaugeUITests: XCTestCase {
         app.launch()
         let statusItem = app.statusItems["codexgauge.statusItem"]
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
-        app.typeKey(",", modifierFlags: .command)
+        sendSettingsShortcut(to: app)
         let settingsWindow = app.windows["General"]
-        XCTAssertTrue(settingsWindow.waitForExistence(timeout: 3))
+        XCTAssertTrue(settingsWindow.waitForExistence(timeout: 5))
         settingsWindow.buttons["Notifications"].click()
         let notificationsWindow = app.windows["Notifications"]
         XCTAssertTrue(notificationsWindow.waitForExistence(timeout: 3))
@@ -323,9 +323,9 @@ final class CodexGaugeUITests: XCTestCase {
         enabledApp.launchArguments = ["-uiTestDemo", "-quotaNotifications", "YES"]
         enabledApp.launch()
         XCTAssertTrue(enabledApp.statusItems["codexgauge.statusItem"].waitForExistence(timeout: 5))
-        enabledApp.typeKey(",", modifierFlags: .command)
+        sendSettingsShortcut(to: enabledApp)
         let enabledSettings = enabledApp.windows["General"]
-        XCTAssertTrue(enabledSettings.waitForExistence(timeout: 3))
+        XCTAssertTrue(enabledSettings.waitForExistence(timeout: 5))
         enabledSettings.buttons["Notifications"].click()
         let enabledNotifications = enabledApp.windows["Notifications"]
         XCTAssertTrue(enabledNotifications.waitForExistence(timeout: 3))
@@ -335,6 +335,15 @@ final class CodexGaugeUITests: XCTestCase {
             .matching(identifier: "allowance-threshold-field")
             .allElementsBoundByIndex
         XCTAssertEqual(fields.compactMap { $0.value as? String }, ["20", "10", "5"])
+    }
+
+    @MainActor
+    private func sendSettingsShortcut(to app: XCUIApplication) {
+        // Menu-bar-only apps do not always own keyboard focus immediately after
+        // XCTest observes their status item. Make the shortcut deterministic
+        // without bypassing the Command-Comma behavior under test.
+        app.activate()
+        app.typeKey(",", modifierFlags: .command)
     }
 
     @MainActor

@@ -26,6 +26,29 @@ private func testHostHasTeamSignature() -> Bool {
 }
 
 struct CodexGaugeTests {
+    @Test func systemNotificationsPostedOffMainQueueRelaySafelyToMainActor() async {
+        let center = NotificationCenter()
+        let name = Notification.Name("CodexGaugeTests.systemTimeDidChange")
+
+        await confirmation("Notification reaches the main actor") { confirmation in
+            let relay = MainActorNotificationRelay {
+                #expect(Thread.isMainThread)
+                confirmation()
+            }
+            center.addObserver(
+                relay,
+                selector: #selector(MainActorNotificationRelay.receive(_:)),
+                name: name,
+                object: nil
+            )
+
+            await Task.detached {
+                center.post(name: name, object: nil)
+            }.value
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
     @MainActor
     @Test func statusItemSymbolsUseBoundedAlignedGeometry() throws {
         let gauge = try #require(

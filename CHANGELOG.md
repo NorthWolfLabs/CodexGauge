@@ -4,6 +4,11 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-01
+
+- Fixed an overnight crash caused by macOS delivering its calendar-day change notification on a background queue at midnight.
+- Routed clock, time-zone, calendar-day, and wake notifications safely through the main actor before updating the menu-bar item.
+
 ## [1.1.0] - 2026-08-29
 
 - Restored near-live local task updates with a bounded one-second fallback for known live tasks and immediate tail catch-up for large rollouts.

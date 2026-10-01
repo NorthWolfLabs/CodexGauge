@@ -126,6 +126,8 @@ archive_app() {
     -destination 'generic/platform=macOS' \
     -archivePath "$archive_path" \
     ARCHS="${universal_architectures[*]}" ONLY_ACTIVE_ARCH=NO \
+    CODEXGAUGE_UPDATE_FEED_URL="${CODEXGAUGE_UPDATE_FEED_URL:-}" \
+    CODEXGAUGE_UPDATE_PUBLIC_KEY="${CODEXGAUGE_UPDATE_PUBLIC_KEY:-}" \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$identity" DEVELOPMENT_TEAM="$team_id" \
     2>&1 | tee "$release_root/archive.log"
   reject_release_diagnostics "$release_root/archive.log"

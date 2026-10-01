@@ -33,13 +33,17 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         var latestOutput: Int64?
         var latestLatency: Int64?
         var explicitState: ConversationState = .recent
+        var completionEventAt: Date?
         var attentionEventAt: Date?
         var activity: ConversationActivity = .waiting
         var workObservedAfterLifecycle = false
+        var pendingTools: [String: ConversationActivity] = [:]
+        var inputCallID: String?
         var pulses: [TokenPulse] = []
     }
 
     private let codexHomeURL: URL
+    private let scopedResources: [ScopedCodexResource]
     private let sessionsURL: URL
     private let locksURL: URL
     private let clock: any ClockProviding
@@ -48,6 +52,8 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     private var sessions: [String: Session] = [:]
     private var titles: [String: String] = [:]
     private var titleIndexModificationDate: Date?
+    private var projectIndex: TaskProjectIndex?
+    private var projectIndexModificationDate: Date?
     private var lockedIDs = Set<String>()
     private var watcher: RecursiveFSEventsWatcher?
     private var continuation: AsyncStream<[ConversationTelemetry]>.Continuation?
@@ -86,9 +92,11 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         codexHomeURL: URL,
         clock: any ClockProviding = SystemClock(),
         maintenanceInterval: Duration = .seconds(1),
-        watchesFilesystemEvents: Bool = true
+        watchesFilesystemEvents: Bool = true,
+        scopedResources: [ScopedCodexResource] = []
     ) {
         self.codexHomeURL = codexHomeURL
+        self.scopedResources = scopedResources
         self.clock = clock
         self.maintenanceInterval = maintenanceInterval
         self.watchesFilesystemEvents = watchesFilesystemEvents
@@ -138,6 +146,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         guard !started else { return }
         started = true
         loadTitles()
+        loadProjects()
         let discoverySignpost = PerformanceSignposts.begin("Session discovery")
         if prepareSessionsRoot() {
             probeLocks()
@@ -172,6 +181,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         var shouldEmitSnapshot = hasRateHistory(at: clock.now)
         if maintenanceTick.isMultiple(of: 3) {
             loadTitles()
+            loadProjects()
             probeLocks()
             shouldEmitSnapshot = true
         }
@@ -487,8 +497,18 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
             session.firstCallTokens = 0
             session.completedCounterSegments = 0
             session.turnStartedAt = nil
+            session.pendingTools.removeAll()
+            session.inputCallID = nil
+            session.explicitState = .recent
+            session.activity = .unknown
+            session.model = nil
+            session.contextWindow = nil
+            session.latestOutput = nil
+            session.latestLatency = nil
+            session.lastActivity = .distantPast
             session.lastTurnDurationSeconds = nil
             session.attentionEventAt = nil
+            session.completionEventAt = nil
             session.workObservedAfterLifecycle = false
         }
         guard fileSize > session.offset else {
@@ -627,13 +647,20 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
             switch payload.type {
             case "task_started", "turn_started":
                 session.explicitState = .running
+                session.completionEventAt = nil
+                session.pendingTools.removeAll()
+                session.inputCallID = nil
                 session.attentionEventAt = nil
                 session.activity = .starting
                 session.workObservedAfterLifecycle = true
                 session.turnStartedAt = payload.startedAt ?? timestamp
                 session.lastTurnDurationSeconds = nil
-                session.contextWindow = payload.modelContextWindow ?? session.contextWindow
+                session.latestCallUsage = nil
+                session.contextWindow = payload.modelContextWindow
             case "task_complete", "task_completed", "turn_complete", "turn_completed":
+                session.completionEventAt = timestamp
+                session.pendingTools.removeAll()
+                session.inputCallID = nil
                 if let duration = payload.durationMilliseconds {
                     session.lastTurnDurationSeconds = max(0, Double(duration) / 1_000)
                 } else if let startedAt = session.turnStartedAt {
@@ -658,16 +685,36 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                 session.activity = .thinking
                 session.workObservedAfterLifecycle = true
             case "agent_message", "message":
+                guard payload.type == "agent_message" || payload.role == "assistant" else { break }
                 session.activity = .generating
                 session.workObservedAfterLifecycle = true
             case "command_execution", "shell_command", "exec_command":
                 session.activity = .runningCommand
                 session.workObservedAfterLifecycle = true
             case "custom_tool_call", "function_call", "tool_call", "web_search_call":
-                session.activity = .usingTool
+                if ["request_user_input", "functions.request_user_input"].contains(payload.name ?? ""),
+                   payload.namespace == nil || payload.namespace == "functions" {
+                    session.explicitState = .needsInput
+                    session.attentionEventAt = timestamp
+                    session.activity = .waiting
+                    session.inputCallID = payload.callID
+                } else {
+                    session.activity = .usingTool
+                    if let id = payload.callID, session.pendingTools.count < 100 { session.pendingTools[id] = session.activity }
+                }
                 session.workObservedAfterLifecycle = true
             case "custom_tool_call_output", "function_call_output", "tool_call_output":
-                session.activity = .thinking
+                if let id = payload.callID { session.pendingTools.removeValue(forKey: id) }
+                if let id = payload.callID, id == session.inputCallID {
+                    session.inputCallID = nil
+                    session.attentionEventAt = nil
+                    session.explicitState = .running
+                    session.activity = .unknown
+                }
+                if session.explicitState != .needsInput && session.explicitState != .needsApproval {
+                    session.activity = session.pendingTools.values.contains(.runningCommand) ? .runningCommand
+                        : !session.pendingTools.isEmpty ? .usingTool : .unknown
+                }
                 session.workObservedAfterLifecycle = true
             case "token_count":
                 session.workObservedAfterLifecycle = true
@@ -765,21 +812,21 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
             let minute = allPulses.filter { $0.timestamp >= now.addingTimeInterval(-60) }
             let fiveMinutes = allPulses.filter { $0.timestamp >= now.addingTimeInterval(-300) }
             let mix = fiveMinutes.reduce(.zero) { $0 + $1.usage }
-            let latest = folded.max { $0.lastActivity < $1.lastActivity } ?? root
             let state = folded.map { effectiveState(for: $0, now: now) }.max {
                 $0.notificationPriority < $1.notificationPriority
             } ?? .recent
-            let turnStartedAt = folded.compactMap { candidate -> Date? in
-                let candidateState = effectiveState(for: candidate, now: now)
-                return candidateState == .running || candidateState == .needsInput || candidateState == .needsApproval
-                    ? candidate.turnStartedAt
-                    : nil
-            }.min()
+            // Select one representative for phase, model, context and elapsed.
+            // Token totals/rates remain explicitly aggregate across linked agents.
+            let representatives = folded.filter { effectiveState(for: $0, now: now) == state }
+            let latest = representatives.first(where: { $0.id == root.id }) ?? representatives.sorted {
+                let a = $0.turnStartedAt ?? .distantFuture, b = $1.turnStartedAt ?? .distantFuture
+                return a == b ? $0.id < $1.id : a < b
+            }.first ?? root
+            let turnStartedAt = latest.turnStartedAt
             let workspace = root.workspace.isEmpty ? "Unattributed Codex Work" : URL(fileURLWithPath: root.workspace).lastPathComponent
             let title = titles[root.id] ?? workspace
             let contextPercent = latest.contextWindow.flatMap { window -> Double? in
-                guard window > 0 else { return nil }
-                let recentInput = latest.latestCallUsage?.input ?? 0
+                guard window > 0, let recentInput = latest.latestCallUsage?.input else { return nil }
                 return min(100, max(0, Double(recentInput) / Double(window) * 100))
             }
             let provenCalls = minute.reduce(0) { $0 + $1.modelCallCount }
@@ -787,7 +834,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                 id: root.id.isEmpty ? root.path : root.id,
                 title: title,
                 workspace: workspace,
-                model: latest.model ?? root.model,
+                model: latest.model,
                 state: state,
                 activity: latest.activity,
                 tokensPerMinute: Self.timeWeightedRate(
@@ -805,12 +852,17 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                 recentTokenMix: mix,
                 latestContextPercent: contextPercent,
                 turnStartedAt: turnStartedAt,
-                lastTurnDurationSeconds: latest.lastTurnDurationSeconds ?? root.lastTurnDurationSeconds,
+                lastTurnDurationSeconds: latest.lastTurnDurationSeconds,
                 latestOutputTokens: latest.latestOutput,
                 timeToFirstTokenMilliseconds: latest.latestLatency,
                 attentionEventAt: folded.compactMap(\.attentionEventAt).max(),
                 agentCount: descendants.count,
-                lastActivity: folded.map(\.lastActivity).max() ?? root.lastActivity
+                lastActivity: latest.lastActivity,
+                completionEventAt: root.completionEventAt,
+                projectName: projectIndex?.name(threadID: root.id, workingDirectory: root.workspace),
+                hasTokenObservation: folded.filter { effectiveState(for: $0, now: now) == .running }.allSatisfy { $0.latestRawTotal != nil } && folded.contains { $0.latestRawTotal != nil },
+                contextIncludesAgent: latest.id != root.id,
+                hasCompleteTokenTotals: folded.allSatisfy { $0.latestRawTotal != nil }
             )
         }.sorted {
             if $0.isLive != $1.isLive { return $0.isLive }
@@ -855,17 +907,15 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
 
     private func effectiveState(for session: Session, now: Date) -> ConversationState {
         let isLocked = lockedIDs.contains(session.id)
-        let isRecent = session.lastActivity > now.addingTimeInterval(-300)
-        if isRecent,
-           (session.explicitState == .needsApproval || session.explicitState == .needsInput) {
+        if session.explicitState == .needsApproval || session.explicitState == .needsInput {
             return session.explicitState
         }
         // A lifecycle start is direct evidence of a live turn even when a Codex
         // build does not expose writer locks. For very large resumed rollouts the
         // bounded tail can begin after task_started; recent work activity plus a
         // held writer lock is the corresponding high-confidence fallback.
-        if isRecent, session.explicitState == .running { return .running }
-        if isLocked, isRecent,
+        if session.explicitState == .running { return .running }
+        if isLocked,
            session.workObservedAfterLifecycle {
             return .running
         }
@@ -980,6 +1030,18 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
               compact[compact.index(compact.startIndex, offsetBy: 12)] == "7",
               let milliseconds = UInt64(compact.prefix(12), radix: 16) else { return nil }
         return Date(timeIntervalSince1970: Double(milliseconds) / 1_000)
+    }
+
+    private func loadProjects() {
+        let url = codexHomeURL.appending(path: ".codex-global-state.json")
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey, .isSymbolicLinkKey])
+        guard values?.isRegularFile == true, values?.isSymbolicLink != true else {
+            projectIndex = nil; projectIndexModificationDate = nil; return
+        }
+        guard let modified = values?.contentModificationDate, modified != projectIndexModificationDate else { return }
+        projectIndex = BoundedFileReader.read(url, maximumBytes: 16 * 1_024 * 1_024)
+            .flatMap { try? JSONDecoder().decode(TaskProjectIndex.self, from: $0) }
+        projectIndexModificationDate = modified
     }
 
     private func loadTitles() {
@@ -1137,6 +1199,10 @@ private struct RolloutPayload: Decodable {
     let durationMilliseconds: Int64?
     let timeToFirstTokenMilliseconds: Int64?
     let modelContextWindow: Int64?
+    let name: String?
+    let callID: String?
+    let role: String?
+    let namespace: String?
     let source: Source?
     let info: UsageInfo?
 
@@ -1148,6 +1214,9 @@ private struct RolloutPayload: Decodable {
         case durationMilliseconds = "duration_ms"
         case timeToFirstTokenMilliseconds = "time_to_first_token_ms"
         case modelContextWindow = "model_context_window"
+        case name
+        case role, namespace
+        case callID = "call_id"
     }
 }
 

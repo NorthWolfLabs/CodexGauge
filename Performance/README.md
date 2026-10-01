@@ -45,3 +45,14 @@ Xcode 26.6 emits one known `[Internal]` priority-inversion diagnostic when `com.
 Signposts cover executable validation, session discovery and parsing, snapshot publication, transient-surface construction, and chart updates. On failure, the harness captures Time Profiler, SwiftUI, Allocations, Animation Hitches, and Leaks diagnostics under `.build/performance`; generated results and traces are intentionally not committed.
 
 The release process repeats native and Intel-slice smoke tests against the app inside the generated DMG. Clean-machine macOS 14, current macOS, and genuine Intel soaks remain release-candidate checks because Rosetta cannot fully substitute for Intel hardware.
+
+## Companion relay latency
+
+A headless probe creates a disposable feed, opens publisher/viewer WebSockets, sends 30 snapshots, reports median/p95/maximum delivery time, and deletes the feed. It does not register push notifications or interact with the installed apps.
+
+```sh
+cd Companion/Relay
+RELAY_URL=https://your-development-relay.example.com vp exec node tests/latency-probe.mts
+```
+
+The September 30 development-relay measurement was **20.3 ms median, 24.1 ms p95, 45.6 ms maximum** over 30 observations. Both endpoints ran on the same Mac through the deployed Cloudflare service. This measures relay transport only; it excludes Codex discovery/polling, iPhone rendering, mobile radio latency, reconnection, APNs, and WidgetKit scheduling. It is not a phone-to-Mac latency guarantee. Widget refreshes and push delivery remain separate system-managed paths.

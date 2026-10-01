@@ -96,13 +96,13 @@ struct HelpView: View {
         helpPage(
             title: "Task activity",
             symbol: "bubble.left.and.bubble.right",
-            introduction: "Task details come from Codex activity stored on this Mac. Work that exists only on another computer may not appear."
+            introduction: "Task details come from Codex activity stored on this Mac. Cloud-only Work chats are not exposed by this local source. Other Macs appear only when linked through the companion."
         ) {
             helpRow("Live", symbol: "circle.fill", detail: "The task is working on this Mac or is waiting for your input or approval.", tint: .green)
             helpRow("Recently active", symbol: "clock", detail: "CodexGauge keeps up to 200 local root tasks seen during the past 24 hours. The popover shows the four newest tasks; the Dashboard starts with ten and shows ten more at a time.")
             helpRow("Began responding", symbol: "bolt", detail: "How long Codex took to begin producing a response after the current turn started.")
             helpRow("Token rate", symbol: "speedometer", detail: "A time-weighted rolling measure of tokens recorded during the previous 60 seconds. It updates about once a second and gradually falls during tool use or other pauses.")
-            callout("Task token rates show local activity, not how much of an account allowance each task used. Status names come from task events; CodexGauge does not inspect message or tool content to determine them.", symbol: "info.circle")
+            callout("Task token rates show local activity, not how much of an account allowance each task used. Status names come from lifecycle and bounded tool metadata; CodexGauge does not inspect prompts, arguments or tool output to determine them. A zero rate never identifies a tool or compaction. Live compaction starts are not exposed by the passive rollout source.", symbol: "info.circle")
         }
     }
 
@@ -120,19 +120,19 @@ struct HelpView: View {
             informationGroup("CodexGauge does not read") {
                 informationRow("Messages, reasoning, command output, or tool contents", symbol: "eye.slash")
                 Divider()
-                informationRow("Your email address, sign-in credentials, or authentication tokens", symbol: "key.slash")
+                informationRow("Codex sign-in credentials or authentication tokens", symbol: "key.slash")
             }
             informationGroup("Stored on this Mac") {
-                Text("CodexGauge saves your settings, a record of alerts already sent, and the latest account activity summary. It does not save task details or task identifiers.")
+                Text("CodexGauge saves settings, alert records, the latest account summary, and configured reset-monitor state. Account IDs or personal account emails returned by Codex are hashed locally for comparison; raw identities are not saved. Pending task alerts retain their titles and project names until delivery. Detailed task telemetry and raw identifiers are not saved; salted identifier hashes and event timestamps prevent duplicate alerts.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             informationGroup("Notifications") {
-                Text("If you turn on alerts, CodexGauge sends privacy-safe allowance or attention notices through Notification Center. Task names are not included in notification text.")
+                Text("Task alerts include their task and associated project names. If you enable the iPhone companion, usage and task status are sent to your configured relay. A usage-only viewing link excludes task and project names. No Codex credentials, workspace paths, task prompts, or answers are sent.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            callout("CodexGauge has no analytics service and does not upload its own telemetry.", symbol: "icloud.slash")
+            callout("CodexGauge has no analytics service.", symbol: "icloud.slash")
         }
     }
 
@@ -145,6 +145,7 @@ struct HelpView: View {
             helpRow("Allowance data is unavailable", symbol: "questionmark.circle", detail: "Open ChatGPT and confirm you are signed in. CodexGauge keeps trying automatically; if it cannot find Codex, choose the helper in Settings.")
             helpRow("A task is missing", symbol: "rectangle.badge.xmark", detail: "Confirm the task has run on this Mac. Tasks that exist only on another linked computer cannot be discovered from local activity.")
             helpRow("Information looks old", symbol: "exclamationmark.triangle", detail: "CodexGauge keeps the most recent successful update while your Mac is offline or Codex cannot respond, then updates automatically when the connection returns.")
+            helpRow("Notifications", symbol: "bell", detail: "Choose which alerts appear on this Mac in Settings > Notifications. Configure iPhone alerts separately in the CodexGauge companion app. Task completion requires an explicit completion event; existing history is not replayed. macOS asks for permission when needed as you enable an alert. macOS manages delivery permissions separately; your alert preferences are kept if permission is denied.")
             Link("Learn how Codex connects", destination: URL(string: "https://learn.chatgpt.com/docs/app-server")!)
         }
     }

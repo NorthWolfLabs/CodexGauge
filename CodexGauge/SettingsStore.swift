@@ -20,7 +20,27 @@ final class SettingsStore {
         static let menuBarConfiguration = "menuBarConfiguration"
     }
 
+    private var routeOverrides: [String: AlertDestination]?
+
+    func destination(for kind: ResetAlertKind) -> AlertDestination {
+        if let route = routeOverrides?[kind.rawValue] { return route }
+        switch kind {
+        case .low: return quotaNotificationsEnabled ? .apple : .off
+        case .attention: return attentionNotificationsEnabled ? .apple : .off
+        case .completed, .working, .banked, .allowance: return .off
+        }
+    }
+
+    func setDestination(_ destination: AlertDestination, for kind: ResetAlertKind) {
+        if routeOverrides == nil {
+            routeOverrides = Dictionary(uniqueKeysWithValues: ResetAlertKind.allCases.map { ($0.rawValue, self.destination(for: $0)) })
+        }
+        routeOverrides?[kind.rawValue] = destination
+        if let data = try? JSONEncoder().encode(routeOverrides) { defaults.set(data, forKey: "alertDestinations") }
+    }
+
     private let defaults: UserDefaults
+    let resetIdentitySalt: String
 
     var refreshInterval: TimeInterval {
         didSet {
@@ -71,6 +91,19 @@ final class SettingsStore {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        // Retired phone integration. Preserve local alert choices via the decoder below.
+        for key in ["ntfyUsage", "ntfyConfigured", "ntfyConfiguration"] {
+            defaults.removeObject(forKey: key)
+        }
+        let savedRoutes = defaults.data(forKey: "alertDestinations").flatMap { try? JSONDecoder().decode([String: AlertDestination].self, from: $0) }
+        routeOverrides = savedRoutes
+        // Rewrite prerelease destinations after decoding their local-notification intent.
+        if let savedRoutes, let data = try? JSONEncoder().encode(savedRoutes) {
+            defaults.set(data, forKey: "alertDestinations")
+        }
+        let salt = defaults.string(forKey: "resetIdentitySalt") ?? UUID().uuidString
+        resetIdentitySalt = salt
+        defaults.set(salt, forKey: "resetIdentitySalt")
         let interval = defaults.double(forKey: Key.refreshInterval)
         refreshInterval = Self.supportedRefreshIntervals.contains(interval) ? interval : 60
         executableOverride = defaults.string(forKey: Key.executableOverride) ?? ""

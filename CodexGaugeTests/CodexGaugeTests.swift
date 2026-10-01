@@ -7,6 +7,7 @@ import Security
 import Testing
 @testable import CodexGauge
 
+
 private func testHostHasTeamSignature() -> Bool {
     guard let executableURL = Bundle.main.executableURL else { return false }
     var code: SecStaticCode?
@@ -31,9 +32,12 @@ struct CodexGaugeTests {
         let name = Notification.Name("CodexGaugeTests.systemTimeDidChange")
 
         await confirmation("Notification reaches the main actor") { confirmation in
+            let (delivery, continuation) = AsyncStream<Void>.makeStream()
             let relay = MainActorNotificationRelay {
                 #expect(Thread.isMainThread)
                 confirmation()
+                continuation.yield(())
+                continuation.finish()
             }
             center.addObserver(
                 relay,
@@ -41,11 +45,19 @@ struct CodexGaugeTests {
                 name: name,
                 object: nil
             )
+            defer { center.removeObserver(relay) }
+            let deadline = Task {
+                try? await Task.sleep(for: .seconds(2))
+                continuation.finish()
+            }
+            defer { deadline.cancel() }
 
             await Task.detached {
                 center.post(name: name, object: nil)
             }.value
-            try? await Task.sleep(for: .milliseconds(50))
+            // Wait for actual delivery, including under Rosetta/build load.
+            // A fixed 50 ms delay can finish the confirmation before the relay.
+            for await _ in delivery { break }
         }
     }
 
@@ -1160,6 +1172,9 @@ struct CodexGaugeTests {
         let file = sessionDirectory.appending(path: "rollout-2026-08-21T20-00-00-\(id).jsonl")
         try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
 
+        try Data(#"{"local-projects":{"sample":{"name":"Sample Display Name","rootPaths":["/tmp/Sample"]}}}"#.utf8)
+            .write(to: temporary.appending(path: ".codex-global-state.json"))
+
         let monitor = LocalSessionMonitor(
             codexHomeURL: temporary,
             clock: FixedClock(now: Date(timeIntervalSince1970: 1_787_342_410))
@@ -1172,6 +1187,7 @@ struct CodexGaugeTests {
         #expect(result?.count == 1)
         #expect(result?.first?.id == id)
         #expect(result?.first?.workspace == "Sample")
+        #expect(result?.first?.projectName == "Sample Display Name")
         #expect(result?.first?.totalTokens == 800)
         #expect(result?.first?.model == "gpt-test")
         #expect(result?.first?.state == .running)
@@ -1301,6 +1317,7 @@ struct CodexGaugeTests {
         #expect(updated?.first?.state == .recent)
         #expect(updated?.first?.activity == .waiting)
         #expect(updated?.first?.turnStartedAt == nil)
+        #expect(updated?.first?.completionEventAt == ISO8601DateFormatter().date(from: "2026-08-29T16:00:04Z"))
     }
 
     @Test func taskIDCreationDateLocatesResumedRolloutDay() throws {
@@ -1424,7 +1441,7 @@ struct CodexGaugeTests {
         #expect(result?.filter { !$0.isLive }.count == 200)
     }
 
-    @Test func activitySeriesUsesCalendarBoundariesAndZeroFillsMissingDays() {
+    @Test func activitySeriesUsesCalendarBoundariesAndPreservesMissingDays() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "America/New_York")!
         let now = calendar.date(from: DateComponents(year: 2026, month: 3, day: 9, hour: 12))!
@@ -1435,8 +1452,8 @@ struct CodexGaugeTests {
 
         let result = ActivitySeries.trailing(source, days: 3, endingAt: now, calendar: calendar)
 
-        #expect(result.map(\.tokens) == [10, 0, 30])
-        #expect(result.count == 3)
+        #expect(result.map(\.tokens) == [10, 30])
+        #expect(result.count == 2)
     }
 
     @Test func activityDaySurvivesTimeZoneChangesAndYearBoundaries() {
@@ -1451,7 +1468,7 @@ struct CodexGaugeTests {
 
         let januaryFirst = tokyo.date(from: DateComponents(year: 2027, month: 1, day: 1, hour: 12))!
         let result = ActivitySeries.trailing([DailyUsage(day: day, tokens: 9)], days: 2, endingAt: januaryFirst, calendar: tokyo)
-        #expect(result.map(\.tokens) == [9, 0])
+        #expect(result.map(\.tokens) == [9])
     }
 
     @MainActor
@@ -1622,5 +1639,136 @@ private final class AdjustableClock: ClockProviding, @unchecked Sendable {
 
     func advance(by interval: TimeInterval) {
         lock.withLock { value = value.addingTimeInterval(interval) }
+    }
+}
+
+extension CodexGaugeTests {
+    private func observedRollout(_ payloads: [String], age: Double = 10) async throws -> ConversationTelemetry {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = temporary.appending(path: "sessions/2026/09/30")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let epoch = Date.now.timeIntervalSince1970
+        var lines = ["{\"timestamp\":\(epoch),\"type\":\"session_meta\",\"payload\":{\"id\":\"11111111-2222-4333-8444-555555555555\",\"cwd\":\"/tmp/Fixture\"}}"]
+        lines += payloads.enumerated().map { index, payload in
+            "{\"timestamp\":\(epoch + Double(index + 1)),\"type\":\"response_item\",\"payload\":\(payload)}"
+        }
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: directory.appending(path: "rollout-2026-09-30T17-00-00-11111111-2222-4333-8444-555555555555.jsonl"))
+        let monitor = LocalSessionMonitor(codexHomeURL: temporary, clock: FixedClock(now: Date(timeIntervalSince1970: epoch + Double(payloads.count) + age)))
+        let stream = await monitor.snapshots(); var iterator = stream.makeAsyncIterator()
+        let result = await iterator.next(); await monitor.stop()
+        return try #require(result?.first)
+    }
+    @Test func silentLifecycleAndMissingContextStayTruthful() async throws {
+        let item = try await observedRollout([#"{"type":"task_started","model_context_window":100000}"#, #"{"type":"function_call","name":"exec_command","call_id":"a","arguments":"private"}"#], age: 600)
+        #expect(item.state == .running)
+        #expect(item.activity == .usingTool)
+        #expect(item.latestContextPercent == nil)
+        #expect(item.hasTokenObservation == false)
+        #expect(item.completionEventAt == nil)
+    }
+    @Test func newTurnContextNeverUsesThePreviousTurnsInput() async throws {
+        let first = #"{"type":"task_started","model_context_window":100000}"#
+        let usage = #"{"type":"token_count","info":{"model_context_window":100000,"last_token_usage":{"input_tokens":80000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":80100},"total_token_usage":{"input_tokens":80000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":80100}}}"#
+        #expect(try await observedRollout([first, usage]).latestContextPercent == 80)
+        let next = #"{"type":"task_started","model_context_window":200000}"#
+        #expect(try await observedRollout([first, usage, next]).latestContextPercent == nil)
+        let nextUsage = #"{"type":"token_count","info":{"model_context_window":200000,"last_token_usage":{"input_tokens":20000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":20100},"total_token_usage":{"input_tokens":100000,"cached_input_tokens":0,"cache_write_input_tokens":0,"output_tokens":100,"reasoning_output_tokens":0,"total_tokens":100200}}}"#
+        #expect(try await observedRollout([first, usage, next, nextUsage]).latestContextPercent == 10)
+    }
+    @Test func concurrentToolOutputsAndInputRequestsPreserveCorrelation() async throws {
+        let start = #"{"type":"task_started"}"#
+        let first = #"{"type":"function_call","name":"exec_command","namespace":"functions","call_id":"a","arguments":"secret"}"#
+        let second = #"{"type":"function_call","name":"view_image","namespace":"functions","call_id":"b","arguments":"secret"}"#
+        let outputA = #"{"type":"function_call_output","call_id":"a","output":"private result"}"#
+        let outputB = #"{"type":"function_call_output","call_id":"b","output":"private result"}"#
+        #expect(try await observedRollout([start, first, second, outputA]).activity == .usingTool)
+        #expect(try await observedRollout([start, first, second, outputA, outputB]).activity == .unknown)
+        let input = #"{"type":"function_call","name":"request_user_input","namespace":"functions","call_id":"question","arguments":"private"}"#
+        let waiting = try await observedRollout([start, first, input, outputA], age: 600)
+        #expect(waiting.state == .needsInput)
+        #expect(waiting.activity == .waiting)
+        let answered = try await observedRollout([start, input, #"{"type":"function_call_output","call_id":"question","output":"private reply"}"#])
+        #expect(answered.state == .running)
+        #expect(answered.activity == .unknown)
+        let misleading = try await observedRollout([start, #"{"type":"message","role":"user","content":[]}"#])
+        #expect(misleading.activity == .starting)
+        let history = try await observedRollout([start, #"{"type":"context_compaction","encrypted_content":"ignored"}"#])
+        #expect(history.activity != .compacting)
+    }
+}
+
+extension CodexGaugeTests {
+    @Test func linkedAgentMetricsUseTheSameActiveRepresentative() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = temporary.appending(path: "sessions/2026/09/30")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let epoch = Date.now.timeIntervalSince1970
+        let root = "11111111-2222-4333-8444-555555555555", active = "21111111-2222-4333-8444-555555555555", done = "31111111-2222-4333-8444-555555555555"
+        func write(_ id: String, parent: String?, model: String?, input: Int, capacity: Int, complete: Bool, date: Double) throws {
+            let parentJSON = parent.map { ",\"parent_thread_id\":\"\($0)\"" } ?? ""
+            let modelJSON = model.map { ",\"model\":\"\($0)\"" } ?? ""
+            var records = ["{\"timestamp\":\(date),\"type\":\"session_meta\",\"payload\":{\"id\":\"\(id)\",\"cwd\":\"/tmp/Root\"\(modelJSON)\(parentJSON)}}"]
+            if parent == nil {
+                records.append("{\"timestamp\":\(date + 1),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}")
+                records.append("{\"timestamp\":\(date + 2),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\",\"duration_ms\":1000}}")
+            }
+            if parent != nil {
+                records.append("{\"timestamp\":\(date + 1),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"model_context_window\":\(capacity)}}")
+                let usage = "{\"input_tokens\":\(input),\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":100,\"reasoning_output_tokens\":0,\"total_tokens\":\(input + 100)}"
+                records.append("{\"timestamp\":\(date + 2),\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"model_context_window\":\(capacity),\"last_token_usage\":\(usage),\"total_token_usage\":\(usage)}}}")
+                records.append("{\"timestamp\":\(date + 3),\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"view_image\",\"call_id\":\"call\"}}")
+                if complete { records.append("{\"timestamp\":\(date + 4),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\"}}") }
+            }
+            try Data((records.joined(separator: "\n") + "\n").utf8).write(to: directory.appending(path: "rollout-2026-09-30T17-00-00-\(id).jsonl"))
+        }
+        try write(root, parent: nil, model: "root", input: 0, capacity: 100000, complete: false, date: epoch)
+        try write(active, parent: root, model: "active-agent", input: 80000, capacity: 100000, complete: false, date: epoch + 10)
+        try write(done, parent: root, model: "completed-sibling", input: 1000, capacity: 10000, complete: true, date: epoch + 20)
+        let monitor = LocalSessionMonitor(codexHomeURL: temporary, clock: FixedClock(now: Date(timeIntervalSince1970: epoch + 30)))
+        let stream = await monitor.snapshots(); var iterator = stream.makeAsyncIterator()
+        let result = await iterator.next(); await monitor.stop()
+        let task = try #require(result?.first)
+        #expect(task.id == root)
+        #expect(task.state == .running)
+        #expect(task.activity == .usingTool)
+        #expect(task.model == "active-agent")
+        #expect(task.latestContextPercent == 80)
+        #expect(task.turnStartedAt == Date(timeIntervalSince1970: epoch + 11))
+        #expect(task.lastActivity == Date(timeIntervalSince1970: epoch + 13))
+        #expect(task.contextIncludesAgent == true)
+        #expect(task.agentCount == 2)
+        #expect(task.lastTurnDurationSeconds == nil)
+        try write(active, parent: root, model: nil, input: 80000, capacity: 100000, complete: false, date: epoch + 10)
+        let missingMonitor = LocalSessionMonitor(codexHomeURL: temporary, clock: FixedClock(now: Date(timeIntervalSince1970: epoch + 30)))
+        let missingStream = await missingMonitor.snapshots(); var missingIterator = missingStream.makeAsyncIterator()
+        let missing = await missingIterator.next()?.first; await missingMonitor.stop()
+        #expect(missing?.model == nil)
+        #expect(missing?.lastTurnDurationSeconds == nil)
+    }
+    @Test func replacedRolloutClearsLifecycleAndToolCorrelation() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = temporary.appending(path: "sessions/2026/09/30")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let file = directory.appending(path: "rollout-2026-09-30T17-00-00-11111111-2222-4333-8444-555555555555.jsonl")
+        let epoch = Date.now.timeIntervalSince1970
+        let meta = "{\"timestamp\":\(epoch),\"type\":\"session_meta\",\"payload\":{\"id\":\"11111111-2222-4333-8444-555555555555\",\"cwd\":\"/tmp/Fixture\"}}\n"
+        let start = "{\"timestamp\":\(epoch),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}\n"
+        let input = "{\"timestamp\":\(epoch),\"type\":\"response_item\",\"payload\":{\"type\":\"function_call\",\"name\":\"request_user_input\",\"call_id\":\"question\",\"arguments\":\"ignored\"}}\n"
+        try Data((meta + start + input).utf8).write(to: file)
+        let monitor = LocalSessionMonitor(codexHomeURL: temporary, clock: FixedClock(now: Date(timeIntervalSince1970: epoch + 10)), maintenanceInterval: .milliseconds(10), watchesFilesystemEvents: false)
+        let stream = await monitor.snapshots(); var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next(); #expect(initial?.first?.state == .needsInput)
+        try Data(meta.utf8).write(to: file)
+        var final: ConversationTelemetry?
+        for _ in 0..<30 { final = await iterator.next()?.first; if final?.state == .recent { break } }
+        await monitor.stop()
+        #expect(final?.isLive == false)
+        #expect(final?.attentionEventAt == nil)
+        #expect(final?.turnStartedAt == nil)
+        #expect(final?.activity == .unknown)
+        #expect(final?.completionEventAt == nil)
     }
 }

@@ -59,13 +59,19 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
         )
         let window = CodexGaugeWindow(contentViewController: controller)
         window.showHelp = onShowHelp
-        window.title = "CodexGauge"
+        window.title = AppIdentity.current.displayName
         window.identifier = NSUserInterfaceItemIdentifier("codexgauge.dashboardWindow")
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         window.tabbingMode = .preferred
         window.isReleasedWhenClosed = true
         window.setContentSize(NSSize(width: 920, height: 650))
         window.minSize = NSSize(width: 760, height: 520)
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-uiTestDemo"),
+           ProcessInfo.processInfo.arguments.contains("-uiTestNarrowDashboard") {
+            window.setFrame(NSRect(origin: window.frame.origin, size: NSSize(width: 780, height: 640)), display: false)
+        }
+        #endif
         window.center()
         window.delegate = self
         surfaceClock = clock

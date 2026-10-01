@@ -181,6 +181,8 @@ jobs:
         env:
           RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+          CODEXGAUGE_UPDATE_FEED_URL: ${{ vars.CODEXGAUGE_UPDATE_FEED_URL }}
+          CODEXGAUGE_UPDATE_PUBLIC_KEY: ${{ vars.CODEXGAUGE_UPDATE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/unsigned-release"
@@ -192,6 +194,8 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -archivePath "$archive" \
+            CODEXGAUGE_UPDATE_FEED_URL="$CODEXGAUGE_UPDATE_FEED_URL" \
+            CODEXGAUGE_UPDATE_PUBLIC_KEY="$CODEXGAUGE_UPDATE_PUBLIC_KEY" \
             ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
           app="$archive/Products/Applications/CodexGauge.app"
           binary="$app/Contents/MacOS/CodexGauge"
@@ -274,9 +278,33 @@ jobs:
           app="$output/app/CodexGauge.app"
           binary="$app/Contents/MacOS/CodexGauge"
           [[ -d "$app" && -f "$binary" ]] || { print -u2 'Unsigned input has an unexpected layout.'; exit 1; }
-          [[ -z "$(find "$app" -type l -print -quit)" ]] || { print -u2 'Unsigned app contains a symbolic link.'; exit 1; }
-          mach_files=("${(@f)$(find "$app" -type f -print0 | xargs -0 file | awk -F: '/Mach-O/{print $1}')}" )
-          [[ "${#mach_files[@]}" == 1 && "${mach_files[1]}" == "$binary" ]] || { print -u2 'Unsigned app contains unexpected executable code.'; exit 1; }
+          # Sparkle's pinned framework is the only permitted nested code. Accept
+          # only its standard, internal framework links, never arbitrary links.
+          framework="$app/Contents/Frameworks/Sparkle.framework"
+          while IFS= read -r link; do
+            relative="${link#$framework/}"
+            case "$relative" in
+              Versions/Current) expected=B ;;
+              Autoupdate|Headers|Modules|PrivateHeaders|Resources|Sparkle|Updater.app|XPCServices)
+                expected="Versions/Current/$relative" ;;
+              *) print -u2 "Unexpected symbolic link: $link"; exit 1 ;;
+            esac
+            [[ "$link" == "$framework/"* && "$(readlink "$link")" == "$expected" ]] || exit 1
+          done < <(find "$app" -type l -print)
+          mach_files=()
+          while IFS= read -r -d $'\0' candidate; do
+            if [[ "$(file -b "$candidate")" == *Mach-O* ]]; then mach_files+=("$candidate"); fi
+          done < <(find "$app" -type f -print0)
+          expected_mach=(
+            "$binary" "$framework/Versions/B/Sparkle" "$framework/Versions/B/Autoupdate"
+            "$framework/Versions/B/Updater.app/Contents/MacOS/Updater"
+            "$framework/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader"
+            "$framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer"
+          )
+          [[ "${#mach_files[@]}" == "${#expected_mach[@]}" ]] || { print -u2 'Unexpected executable count.'; exit 1; }
+          for executable in "${mach_files[@]}"; do
+            (( ${expected_mach[(Ie)$executable]} > 0 )) || { print -u2 "Unexpected executable: $executable"; exit 1; }
+          done
           archs="$(lipo -archs "$binary")"
           [[ " $archs " == *' arm64 '* && " $archs " == *' x86_64 '* && "$(wc -w <<< "$archs" | tr -d ' ')" == 2 ]] || exit 1
           [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == com.northwolflabs.CodexGauge ]] || exit 1
@@ -292,6 +320,13 @@ jobs:
           identity="$(security find-identity -v -p codesigning "$keychain" | sed -nE 's/.*"(Developer ID Application: .* \(ALPX923Y54\))".*/\1/p' | head -n 1)"
           [[ -n "$identity" ]] || { print -u2 'North Wolf Labs Developer ID identity is unavailable.'; exit 1; }
           rm -f "$p12"
+          # These services are not enabled in the nonsandboxed app. Sign with no
+          # inherited input entitlements, then seal the framework and outer app.
+          for nested in "$framework/Versions/B/XPCServices/Installer.xpc" \
+                        "$framework/Versions/B/XPCServices/Downloader.xpc" \
+                        "$framework/Versions/B/Autoupdate" "$framework/Versions/B/Updater.app" "$framework"; do
+            codesign --force --timestamp --options runtime --sign "$identity" "$nested"
+          done
           codesign --force --timestamp --options runtime --sign "$identity" "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
           details="$(codesign -dvvv "$app" 2>&1)"

@@ -2,9 +2,12 @@ import Foundation
 
 actor DefaultCodexExecutableLocator: CodexExecutableLocating {
     private let validator: any CodexExecutableValidating
+    private let homeDirectory: URL
 
-    init(validator: any CodexExecutableValidating = DefaultCodexExecutableValidator()) {
+    init(validator: any CodexExecutableValidating = DefaultCodexExecutableValidator(),
+         homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.validator = validator
+        self.homeDirectory = homeDirectory
     }
 
     func locate(override: String?) async -> URL? {
@@ -15,9 +18,13 @@ actor DefaultCodexExecutableLocator: CodexExecutableLocating {
 
         candidates += [
             "/Applications/ChatGPT.app/Contents/Resources/codex",
-            "\(NSHomeDirectory())/Applications/ChatGPT.app/Contents/Resources/codex",
+            "\(homeDirectory.path)/Applications/ChatGPT.app/Contents/Resources/codex",
             "/Applications/Codex.app/Contents/Resources/codex",
-            "\(NSHomeDirectory())/Applications/Codex.app/Contents/Resources/codex"
+            "\(homeDirectory.path)/Applications/Codex.app/Contents/Resources/codex",
+            "\(homeDirectory.path)/.codex/packages/standalone/current/bin/codex",
+            "\(homeDirectory.path)/.local/bin/codex",
+            "/opt/homebrew/bin/codex",
+            "/usr/local/bin/codex"
         ]
 
         var seen = Set<String>()

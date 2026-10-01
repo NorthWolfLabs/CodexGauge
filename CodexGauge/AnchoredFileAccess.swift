@@ -60,21 +60,11 @@ enum AnchoredFileAccess {
         guard let resolvedPath = canonicalPath(for: url) else { return nil }
         guard resolvedPath.hasPrefix("/") else { return nil }
 
-        var descriptor = open("/", O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW)
+        // A security-scoped folder grant does not grant directory-listing access
+        // to each ancestor. Open the resolved root in one kernel lookup while
+        // still rejecting symlinks in *every* component if the path changes.
+        let descriptor = open(resolvedPath, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW_ANY | O_NONBLOCK)
         guard descriptor >= 0 else { return nil }
-
-        for component in URL(fileURLWithPath: resolvedPath).pathComponents.dropFirst() {
-            guard isSafeComponent(component) else {
-                close(descriptor)
-                return nil
-            }
-            let next = component.withCString {
-                openat(descriptor, $0, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
-            }
-            close(descriptor)
-            guard next >= 0 else { return nil }
-            descriptor = next
-        }
 
         var status = stat()
         guard fstat(descriptor, &status) == 0,

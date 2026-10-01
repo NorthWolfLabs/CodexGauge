@@ -7,8 +7,8 @@ enum ActivitySeries {
     ) -> [DailyUsage] {
         let grouped = Dictionary(grouping: usage) { $0.day }
         return grouped.map { day, values in
-            DailyUsage(day: day, tokens: values.reduce(0) { $0.addingWithoutOverflow($1.tokens) })
-        }.sorted { $0.day < $1.day }
+            DailyUsage(day: day, tokens: values.map(\.tokens).max() ?? 0)
+        }.filter { $0.day.date(in: calendar) != nil }.sorted { $0.day < $1.day }
     }
 
     static func trailing(
@@ -24,7 +24,7 @@ enum ActivitySeries {
         return (0..<days).compactMap { offset in
             guard let day = calendar.date(byAdding: .day, value: offset, to: start) else { return nil }
             let key = ActivityDay(date: day, calendar: calendar)
-            return DailyUsage(day: key, tokens: values[key, default: 0])
+            return values[key].map { DailyUsage(day: key, tokens: $0) }
         }
     }
 
@@ -41,7 +41,7 @@ enum ActivitySeries {
         let source = normalized(usage, calendar: calendar)
         let startKey = ActivityDay(date: previousStart, calendar: calendar)
         let endKey = ActivityDay(date: previousEnd, calendar: calendar)
-        guard source.contains(where: { $0.day >= startKey && $0.day <= endKey }) else { return nil }
+        guard source.filter({ $0.day >= startKey && $0.day <= endKey }).count == days else { return nil }
         return source
             .filter { $0.day >= startKey && $0.day <= endKey }
             .reduce(0) { $0.addingWithoutOverflow($1.tokens) }

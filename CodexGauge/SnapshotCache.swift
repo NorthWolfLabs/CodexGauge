@@ -5,11 +5,16 @@ actor SnapshotCache {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        let directory = base.appending(path: "CodexGauge", directoryHint: .isDirectory)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        fileURL = directory.appending(path: "account-snapshot.json")
+    init(fileURL: URL? = nil) {
+        if let fileURL {
+            self.fileURL = fileURL
+            try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        } else {
+            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            let directory = base.appending(path: AppIdentity.current.supportDirectoryName, directoryHint: .isDirectory)
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            self.fileURL = directory.appending(path: "account-snapshot.json")
+        }
         encoder.dateEncodingStrategy = .iso8601
         decoder.dateDecodingStrategy = .iso8601
     }

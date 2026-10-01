@@ -64,6 +64,8 @@ enum ConversationActivity: String, Codable, Sendable {
     case generating
     case usingTool
     case runningCommand
+    case compacting
+    case unknown
     case waiting
 
     var title: String {
@@ -73,6 +75,8 @@ enum ConversationActivity: String, Codable, Sendable {
         case .generating: "Writing a response"
         case .usingTool: "Using a tool"
         case .runningCommand: "Running a command"
+        case .compacting: "Compacting context"
+        case .unknown: "Activity unavailable"
         case .waiting: "Waiting"
         }
     }
@@ -84,6 +88,8 @@ enum ConversationActivity: String, Codable, Sendable {
         case .generating: "text.line.last.and.arrowtriangle.forward"
         case .usingTool: "wrench.and.screwdriver"
         case .runningCommand: "terminal"
+        case .compacting: "arrow.down.right.and.arrow.up.left"
+        case .unknown: "questionmark.circle"
         case .waiting: "pause"
         }
     }
@@ -193,6 +199,11 @@ struct CreditSnapshot: Codable, Hashable, Sendable {
     let hasCredits: Bool
     let unlimited: Bool
     let balance: String?
+    var displayBalance: String {
+        if unlimited { return "Unlimited" }
+        if let balance, !balance.isEmpty { return balance }
+        return hasCredits ? "Available" : "0"
+    }
 }
 
 struct SpendControlSnapshot: Codable, Hashable, Sendable {
@@ -238,7 +249,11 @@ struct ActivityDay: Codable, Hashable, Comparable, Sendable {
     }
 
     func date(in calendar: Calendar = .current) -> Date? {
-        calendar.date(from: DateComponents(year: year, month: month, day: day))
+        guard let value = calendar.date(from: DateComponents(year: year, month: month, day: day)),
+              calendar.component(.year, from: value) == year,
+              calendar.component(.month, from: value) == month,
+              calendar.component(.day, from: value) == day else { return nil }
+        return value
     }
 
     static func < (lhs: ActivityDay, rhs: ActivityDay) -> Bool {
@@ -307,6 +322,9 @@ struct AccountSnapshot: Codable, Hashable, Sendable {
     let earnedResetCount: Int?
     var activity: AccountActivity
     let fetchedAt: Date
+    var accountKey: String? = nil
+    var email: String? = nil
+    var activityObservedAt: Date? = nil
 
     var canonicalBucket: QuotaBucket? {
         buckets.first(where: { $0.id == "codex" }) ?? buckets.first
@@ -325,6 +343,8 @@ struct AccountSnapshot: Codable, Hashable, Sendable {
 struct AccountIdentity: Codable, Hashable, Sendable {
     let accountType: String
     let plan: String?
+    var personalAccountHash: String? = nil
+    var email: String? = nil
 }
 
 struct RateLimitSnapshot: Codable, Hashable, Sendable {
@@ -332,6 +352,8 @@ struct RateLimitSnapshot: Codable, Hashable, Sendable {
     let buckets: [QuotaBucket]
     let earnedResetCount: Int?
     let fetchedAt: Date
+    var accountID: String? = nil
+    var resetCredits: [ResetCredit]? = nil
 }
 
 struct ConversationTelemetry: Identifiable, Codable, Hashable, Sendable {
@@ -360,6 +382,11 @@ struct ConversationTelemetry: Identifiable, Codable, Hashable, Sendable {
     let attentionEventAt: Date?
     let agentCount: Int
     let lastActivity: Date
+    var completionEventAt: Date? = nil
+    var projectName: String? = nil
+    var hasTokenObservation: Bool? = nil
+    var contextIncludesAgent: Bool? = nil
+    var hasCompleteTokenTotals: Bool? = nil
 
     var isLive: Bool {
         state == .running || state == .needsInput || state == .needsApproval
@@ -402,13 +429,19 @@ protocol CodexExecutableValidating: Sendable {
 
 @MainActor
 protocol NotificationScheduling: Sendable {
+    func deliver(_ alert: ResetAlert) async -> Bool
     func requestAuthorization() async -> Bool
     func authorizationStatus() async -> NotificationAuthorizationState
     func evaluate(snapshot: AccountSnapshot, thresholds: [Int]) async
     func evaluate(conversations: [ConversationTelemetry]) async
 }
 
+extension NotificationScheduling {
+    func deliver(_ alert: ResetAlert) async -> Bool { true }
+}
+
 enum NotificationAuthorizationState: String, Codable, Sendable {
+    case checking
     case notDetermined
     case denied
     case authorized
@@ -422,4 +455,18 @@ protocol ClockProviding: Sendable {
 
 struct SystemClock: ClockProviding {
     var now: Date { .now }
+}
+
+/// A cache is supplemental evidence only for the exact observed account.
+/// Neither a plan name nor an unverified legacy cache establishes continuity.
+enum AccountHistoryIdentity {
+    static func key(limits: RateLimitSnapshot, identity: AccountIdentity, salt: String) -> String? {
+        let account = limits.accountID.flatMap { $0.isEmpty ? nil : $0 }
+        guard account != nil || identity.personalAccountHash != nil else { return nil }
+        return ResetAccountIdentity.digest([account ?? "", identity.personalAccountHash ?? "", identity.accountType].joined(separator: "|"), salt: salt)
+    }
+    static func activity(_ activity: AccountActivity, recordedKey: String?, currentKey: String?) -> AccountActivity {
+        guard let recordedKey, recordedKey == currentKey else { return .empty }
+        return activity
+    }
 }

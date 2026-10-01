@@ -4,6 +4,38 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
+- Add native ActivityKit Lock Screen and Dynamic Island task summaries, with per-Mac APNs start/update/end delivery, waiting-task priority, stale states, dismissal handling, and access revocation. Keep delivery ordering separate from Mac observation age and request immediate dismissal when access is removed.
+- Add selectable 7/30/90-day mobile token charts and five-minute task throughput charts with explicit gaps after reconnecting.
+- Retain tapped chart-day selection, select the correct calendar day after noon, and show isolated throughput observations after reconnection.
+- Fix a crash when tapping a real task notification by completing its response delegate on the main actor; verify warm, cold, and repeated notification navigation.
+- Show available credit balances beside banked resets on iPhone, in the medium Home Screen widget, and in Mac allowance views. Preserve exact and unlimited balances.
+
+- Open task notifications directly in the linked task’s read-only detail, return allowance notifications to Overview, and show invalid viewing-link errors in the linking form.
+- Preserve simultaneous phone subscriptions, enforce the subscriber limit under concurrent requests, and revoke feed access before asynchronous deletion cleanup.
+- Send live snapshots in order before push processing, align Swift text limits with the relay’s Unicode rules, and keep APNs payloads within 4 KB without splitting emoji.
+- Keep widget refreshes from overwriting newer app data or restoring removed viewing links. Mark stale usage on the widget timeline and clear revoked feeds from live views.
+- Isolate phone alert registration failures per Mac, report unlink failures where they occur, and let revoked links be removed.
+- Bound WebSocket reads and writes, cancel stalled connections, and keep foreground viewing streams alive with relay-only heartbeats.
+- Fit long Unicode task summaries within the relay payload limit, retaining allowances and active tasks before completed history.
+- Prioritize tasks needing attention, show complete titles in task details, improve accessibility text-size layouts, and label the activity chart.
+
+- Add a separate full-app sandbox preview with native folder/helper selection, persisted security-scoped access, and no Sparkle dependency. Verify restored real-folder access, fresh allowances and live task-data changes after relaunch; retain grants until readers and helper processes finish using them. Controlled sandbox checks also cover task input, approval, completion, and recovery after restarting the monitor.
+- Add a read-only iPhone companion with linked-Mac live usage/task views, Cloudflare relay, APNs alerts, and Home Screen/Lock Screen widgets. Verify real Mac linking and widget layouts on iPhone 17 Pro; retain the last confirmed usage across pending resets.
+- Integrate Sparkle for future signed Mac updates, with explicit development/beta isolation and opt-in automatic checks. A disposable HTTPS signed-update rehearsal passed, including rejection and saved-state preservation; production feed/signing-key setup remains release preparation work.
+- Add an isolated Mac sandbox compatibility probe. Installed-helper launch and app-server initialization work with a selected writable fixture; bookmark restoration and filesystem events also work after relaunch. Fix the file reader to honor a scoped directory grant without opening its ancestors. A user-approved check also passed saved sign-in and authenticated allowance access; Store integration and review eligibility remain under investigation.
+
+- Remove the experimental Slack and ntfy integrations, including setup, remote routing, counters, command handling, and Slack artwork. Preserve Apple alert choices and clear retired local integration credentials and queues on launch.
+- Add per-event Apple notifications for task working, input/approval, completion, banked resets, and allowance resets alongside low-allowance alerts. Identify tasks by title and saved project name.
+- Preserve account-scoped observations, offline catch-up, persistent local-delivery retries, and duplicate suppression. Require an explicit completion event before announcing a finished task.
+- Keep notification settings focused on alert choices and thresholds. Request permission in context and check current authorization before delivery.
+- Generate light/dark branding, README artwork, and legacy fallback icons from the current Icon Composer source.
+- Preserve native Edit menu shortcuts for text inputs.
+- Replace the beta suffix with an optional β icon in the gauge slot, using the same renderer in the menu bar and preview. Warning symbols retain their meaning.
+- Keep the popover anchored as menu-bar items move, expose its native glass material, and dismiss it when another menu-bar item is clicked.
+- Find OpenAI-signed standalone Codex helpers, keep task monitoring independent of helper discovery, and improve disconnected recovery actions.
+- Add local beta packaging with separate app identity, preferences, and caches for side-by-side testing.
+- Refresh allowances immediately after wake and document snapshot-based reset detection limits.
+
 ## [1.2.0] - 2026-09-01
 
 - Added Universal 2 support so one CodexGauge app runs natively on Apple-silicon and Intel Macs running macOS 14.4 or later.

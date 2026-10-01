@@ -22,37 +22,7 @@ struct DashboardView: View {
         }
     }
 
-    private enum ActivityRange: String, CaseIterable, Identifiable {
-        case today, week, month, year, all
-        var id: Self { self }
-        var title: String {
-            switch self {
-            case .today: "Today"
-            case .week: "7 Days"
-            case .month: "30 Days"
-            case .year: "1 Year"
-            case .all: "All"
-            }
-        }
-        var dayCount: Int? {
-            switch self {
-            case .today: 1
-            case .week: 7
-            case .month: 30
-            case .year: 365
-            case .all: nil
-            }
-        }
-        var periodName: String {
-            switch self {
-            case .today: "Today"
-            case .week: "Last 7 days"
-            case .month: "Last 30 days"
-            case .year: "Last year"
-            case .all: "All recorded days"
-            }
-        }
-    }
+    private typealias ActivityRange = CompanionActivityRange
 
     private struct ActivityRangeControl: View, Equatable {
         @Binding var selection: ActivityRange
@@ -70,7 +40,7 @@ struct DashboardView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .controlSize(.regular)
-            .frame(width: 360, height: 24)
+            .frame(width: 430, height: 24)
             .fixedSize()
             .transaction { $0.animation = nil }
             .accessibilityIdentifier("activity-range-picker")
@@ -116,7 +86,7 @@ struct DashboardView: View {
                 case .activity: activity
                 }
             }
-            .navigationTitle("CodexGauge")
+            .navigationTitle(AppIdentity.current.displayName)
         }
         .onChange(of: activityRange) { _, _ in selectedActivityDate = nil }
         .frame(minWidth: 780, minHeight: 540)
@@ -130,6 +100,14 @@ struct DashboardView: View {
                     dashboardMetric("Live tasks", "\(liveConversations.count)", detail: liveConversations.isEmpty ? "None on this Mac" : liveSummary, symbol: "desktopcomputer")
                     dashboardMetric("Last 7 days", GaugeFormatting.tokenCount(recentUsage(days: 7).reduce(0) { $0.addingWithoutOverflow($1.tokens) }), detail: "account activity", symbol: "chart.bar")
                     dashboardMetric("Lifetime", state.accountSnapshot?.activity.lifetimeTokens.map(GaugeFormatting.tokenCount) ?? "—", detail: "account tokens", symbol: "sum")
+                    if let resets = state.accountSnapshot?.earnedResetCount {
+                        dashboardMetric("Banked resets", "\(resets)", detail: "Available", symbol: "arrow.counterclockwise")
+                    }
+                    ForEach(state.accountSnapshot?.buckets ?? []) { bucket in
+                        if let credits = bucket.credits {
+                            dashboardMetric("Credits available", credits.displayBalance, detail: bucket.name, symbol: "creditcard")
+                        }
+                    }
                 }
 
                 let recent = recentUsage(days: 14)
@@ -151,6 +129,7 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let snapshot = state.accountSnapshot {
+                    AccountBalancesView(snapshot: snapshot)
                     ForEach(snapshot.buckets) { bucket in
                         GroupBox {
                             VStack(spacing: 16) {
@@ -161,7 +140,7 @@ struct DashboardView: View {
                                             Spacer()
                                             Text("\(window.remainingPercent)% remaining").monospacedDigit().foregroundStyle(.secondary)
                                         }
-                                        Gauge(value: Double(window.clampedUsedPercent), in: 0...100) { Text(window.durationName) }
+                                        Gauge(value: Double(window.clampedUsedPercent), in: 0...100) { EmptyView() }
                                             .gaugeStyle(.linearCapacity)
                                             .tint(limitColor(window.remainingPercent))
                                             .accessibilityLabel("\(window.durationName) Codex allowance")
@@ -245,15 +224,9 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 if let accountActivity = state.accountSnapshot?.activity, accountActivity != .empty {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Token activity").font(.title2.weight(.semibold))
-                            Text("Account-wide activity by day").font(.subheadline).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        ActivityRangeControl(selection: $activityRange)
-                            .equatable()
-                            .layoutPriority(1)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Token activity").font(.title2.weight(.semibold))
+                        ActivityRangeControl(selection: $activityRange).equatable()
                     }
 
                     let usage = filteredUsage(accountActivity.dailyUsage)
@@ -322,22 +295,30 @@ struct DashboardView: View {
                 }
 
                 HStack(spacing: 12) {
-                    dashboardRateValue("Current rate", conversation.tokensPerMinute, symbol: "speedometer")
-                    dashboardRateValue("5-minute average", conversation.tokensPerFiveMinutes, symbol: "chart.line.uptrend.xyaxis")
+                    if (conversation.hasTokenObservation ?? (conversation.tokensPerMinute > 0)) && clock.now.timeIntervalSince(conversation.lastActivity) <= 90 {
+                        dashboardRateValue("Current rate", conversation.tokensPerMinute, symbol: "speedometer")
+                        dashboardRateValue("5-minute average", conversation.tokensPerFiveMinutes, symbol: "chart.line.uptrend.xyaxis")
+                    } else { dashboardValue("Current rate", "Unavailable", symbol: "speedometer") }
                     if let calls = conversation.callsPerMinute {
                         dashboardValue("Model calls", String(format: "%.1f/min", calls), symbol: "cpu")
                     }
-                    DashboardTurnDurationValue(startedAt: conversation.turnStartedAt, clock: clock)
+                    if clock.now.timeIntervalSince(conversation.lastActivity) > 90, let start = conversation.turnStartedAt {
+                        dashboardValue("Last observed elapsed", GaugeFormatting.duration(max(0, conversation.lastActivity.timeIntervalSince(start))), symbol: "clock")
+                    } else { DashboardTurnDurationValue(startedAt: conversation.turnStartedAt, clock: clock) }
                 }
 
                 if let rawContext = conversation.latestContextPercent, rawContext.isFinite {
                     let context = min(100, max(0, rawContext))
-                    Gauge(value: context, in: 0...100) { Text("Latest context window") } currentValueLabel: {
+                    Gauge(value: context, in: 0...100) { Text(conversation.contextIncludesAgent == true ? "Latest agent context window" : "Latest context window") } currentValueLabel: {
                         Text("\(Int(context.rounded()))%").monospacedDigit()
                     }
                     .gaugeStyle(.linearCapacity)
-                    .accessibilityLabel("Latest context window")
+                    .accessibilityLabel(conversation.contextIncludesAgent == true ? "Latest agent context window" : "Latest context window")
                     .accessibilityValue("\(Int(context.rounded())) percent filled; minimum 0, maximum 100")
+                }
+
+                if conversation.contextIncludesAgent == true {
+                    Text("Activity, model, context and elapsed are from the selected active agent.").font(.caption).foregroundStyle(.secondary)
                 }
 
                 if conversation.recentTokenMix.total > 0 {
@@ -365,7 +346,7 @@ struct DashboardView: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            detailValue("Tokens", GaugeFormatting.tokenCount(conversation.totalTokens))
+            detailValue("Recorded tokens", conversation.hasTokenObservation == true || conversation.totalTokens > 0 ? GaugeFormatting.tokenCount(conversation.totalTokens) : "—")
                 .frame(width: 82)
             detailValue("Last turn", conversation.lastTurnDurationSeconds.map(GaugeFormatting.coarseDuration) ?? "—")
                 .frame(width: 72)
@@ -601,19 +582,22 @@ struct DashboardView: View {
     }
 
     private func filteredUsage(_ usage: [DailyUsage]) -> [DailyUsage] {
-        guard let count = activityRange.dayCount else { return ActivitySeries.normalized(usage) }
+        guard let count = activityRange.dayCount(at: state.currentDate) else {
+            return ActivitySeries.normalized(usage).filter { $0.day <= ActivityDay(date: state.currentDate) }
+        }
         return ActivitySeries.trailing(usage, days: count, endingAt: state.currentDate)
     }
 
     private func selectedUsage(in usage: [DailyUsage]) -> DailyUsage? {
         if activityRange == .today { return usage.first }
         guard let selectedActivityDate else { return nil }
-        return usage.min { abs($0.date.timeIntervalSince(selectedActivityDate)) < abs($1.date.timeIntervalSince(selectedActivityDate)) }
+        return usage.first { $0.day == ActivityDay(date: selectedActivityDate) }
     }
 
     private func periodComparison(currentTotal: Int64) -> (value: String, detail: String, symbol: String) {
-        guard let count = activityRange.dayCount,
+        guard let count = activityRange.dayCount(at: state.currentDate),
               let allUsage = state.accountSnapshot?.activity.dailyUsage,
+              ActivitySeries.trailing(allUsage, days: count, endingAt: state.currentDate).count == count,
               let previous = ActivitySeries.previousTotal(
                 allUsage,
                 days: count,
@@ -631,6 +615,7 @@ struct DashboardView: View {
         case .today: "Today total"
         case .week: "7-day total"
         case .month: "30-day total"
+        case .quarter: "90-day total"
         case .year: "1-year total"
         case .all: "Recorded total"
         }
@@ -641,6 +626,7 @@ struct DashboardView: View {
         case .today: "compared with yesterday"
         case .week: "compared with the prior 7 days"
         case .month: "compared with the prior 30 days"
+        case .quarter: "compared with the prior 90 days"
         case .year: "compared with the prior year"
         case .all: ""
         }
@@ -655,7 +641,8 @@ struct DashboardView: View {
     }
 
     private func phaseTitle(_ conversation: ConversationTelemetry) -> String {
-        switch conversation.state {
+        if clock.now.timeIntervalSince(conversation.lastActivity) > 90 { return "Last seen: " + conversation.state.title.lowercased() }
+        return switch conversation.state {
         case .needsApproval: "Approval needed"
         case .needsInput: "Input needed"
         default: conversation.activity.title

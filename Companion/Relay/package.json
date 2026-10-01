@@ -1,0 +1,31 @@
+{
+  "name": "codexgauge-relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local --ip 127.0.0.1",
+    "types": "wrangler types",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "build": "wrangler deploy --dry-run"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.8.1",
+      "onFail": "download"
+    }
+  },
+  "dependencies": {
+    "hono": "^4.13.10",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260928.1",
+    "@types/node": "^26.6.3",
+    "@types/ws": "^8.18.1",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.143.0",
+    "ws": "^8.22.0"
+  }
+}

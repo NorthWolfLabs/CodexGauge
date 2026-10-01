@@ -31,6 +31,27 @@ final class UserNotificationScheduler: NotificationScheduling, @unchecked Sendab
         activeAttentionTasks = Set(defaults.stringArray(forKey: Key.activeAttentionTasks) ?? [])
     }
 
+    func deliver(_ alert: ResetAlert) async -> Bool {
+        let authorization = await authorizationStatus()
+        // A system denial is respected without accumulating an old-alert backlog.
+        guard authorization == .authorized || authorization == .provisional else { return true }
+        let content = UNMutableNotificationContent()
+        content.title = alert.kind.title
+        switch alert.kind {
+        case .banked: content.body = "\(alert.added) new; \(alert.available) available."
+        case .allowance, .low: content.body = "\(alert.name): \(alert.available)% remaining."
+        case .attention, .completed, .working:
+            content.body = alert.name.isEmpty ? "Task name unavailable." : alert.name
+            if let project = alert.projectName, !project.isEmpty { content.body += "\nProject: " + project }
+        }
+        content.sound = .default
+        content.categoryIdentifier = NotificationDelegate.categoryIdentifier
+        do {
+            try await center.add(UNNotificationRequest(identifier: alert.id.uuidString, content: content, trigger: nil))
+            return true
+        } catch { return false }
+    }
+
     func requestAuthorization() async -> Bool {
         (try? await center.requestAuthorization(options: [.alert, .sound])) == true
     }
@@ -47,6 +68,8 @@ final class UserNotificationScheduler: NotificationScheduling, @unchecked Sendab
     }
 
     func evaluate(snapshot: AccountSnapshot, thresholds: [Int]) async {
+        let authorization = await authorizationStatus()
+        guard authorization == .authorized || authorization == .provisional else { return }
         for bucket in snapshot.buckets {
             for window in bucket.windows {
                 let crossed = NotificationDecision.crossedThresholds(
@@ -91,6 +114,8 @@ final class UserNotificationScheduler: NotificationScheduling, @unchecked Sendab
     }
 
     func evaluate(conversations: [ConversationTelemetry]) async {
+        let authorization = await authorizationStatus()
+        guard authorization == .authorized || authorization == .provisional else { return }
         let actionable = conversations.filter { $0.state == .needsApproval || $0.state == .needsInput }
         let currentlyActionable = Set(actionable.map { NotificationDedupeKey.attentionTask(id: $0.id) })
         NotificationDecision.clearInactiveAttentionTasks(

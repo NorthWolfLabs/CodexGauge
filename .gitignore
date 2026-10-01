@@ -22,3 +22,7 @@ xcuserdata/
 .env
 .env.*
 .infisical.json
+node_modules/
+.wrangler/
+.dev.vars*
+Companion/.swiftpm/

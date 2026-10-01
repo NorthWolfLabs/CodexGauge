@@ -85,9 +85,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         fatalError("init(coder:) has not been implemented")
     }
 
-    func show() {
-        Task { await state.refreshNotificationAuthorization() }
+    func show(_ pane: SettingsPane? = nil) {
         guard let window else { return }
+        if let pane {
+            navigation.selection = pane
+            window.title = pane.title
+        }
         window.toolbar?.selectedItemIdentifier = navigation.selection.toolbarIdentifier
         window.makeKey()
         window.orderFrontRegardless()
@@ -148,5 +151,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         navigation.selection = pane
         window?.toolbar?.selectedItemIdentifier = pane.toolbarIdentifier
         window?.title = pane.title
+
     }
 }

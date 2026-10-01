@@ -1,4 +1,5 @@
 import AppKit
+import Network
 
 @main
 enum CodexGaugeApp {
@@ -18,6 +19,11 @@ final class CodexGaugeAppDelegate: NSObject, NSApplicationDelegate {
     private let notificationDelegate = NotificationDelegate()
     private var statusItemController: StatusItemController?
     private var performanceWorkload: PerformanceWorkloadController?
+    private let networkMonitor = NWPathMonitor()
+    private var lastNetworkAvailable: Bool?
+    private lazy var wakeRelay = MainActorNotificationRelay { [weak self] in
+        self?.state.refreshAfterWake()
+    }
 
     override init() {
         let processInfo = ProcessInfo.processInfo
@@ -38,8 +44,38 @@ final class CodexGaugeAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
         notificationDelegate.configure()
+        AppUpdater.shared.start()
         statusItemController = StatusItemController(state: state)
+        NSWorkspace.shared.notificationCenter.addObserver(
+            wakeRelay, selector: #selector(MainActorNotificationRelay.receive(_:)),
+            name: NSWorkspace.didWakeNotification, object: nil
+        )
         let arguments = ProcessInfo.processInfo.arguments
+        #if DEBUG && STORE_BUILD
+        SandboxRuntimeVerification.start(state)
+        #endif
+        #if DEBUG
+        if arguments.contains("-showNotificationsSettings") {
+            statusItemController?.showNotificationPreferencesForDevelopment()
+        }
+        if arguments.contains("-showDashboard") {
+            statusItemController?.showDashboardForDevelopment()
+        }
+        #endif
+        if arguments.contains("-uiTestDemo"),
+           let index = arguments.firstIndex(of: "-AppleInterfaceStyle"), arguments.indices.contains(index + 1) {
+            NSApp.appearance = NSAppearance(named: arguments[index + 1] == "Dark" ? .darkAqua : .aqua)
+        }
+        networkMonitor.pathUpdateHandler = { [weak self] path in
+            let available = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let recovered = self.lastNetworkAvailable == false && available
+                self.lastNetworkAvailable = available
+                if recovered { self.state.refreshAfterWake() }
+            }
+        }
+        networkMonitor.start(queue: DispatchQueue(label: "com.northwolflabs.CodexGauge.network"))
         if let marker = arguments.firstIndex(of: "-performanceScenario"), arguments.indices.contains(marker + 1) {
             let scenario = arguments[marker + 1]
             if arguments.contains("-performanceStress") {

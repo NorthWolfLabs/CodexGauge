@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="CodexGauge/Assets.xcassets/AppIcon.appiconset/icon_512x512@2x.png" width="128" height="128" alt="CodexGauge app icon">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="CodexGauge/Branding/CodexGauge-Dark.png">
+    <img src="CodexGauge/Branding/CodexGauge-Light.png" width="128" height="128" alt="CodexGauge app icon">
+  </picture>
 </p>
 
 <h1 align="center">CodexGauge</h1>
@@ -27,7 +30,8 @@ Intel support begins with CodexGauge 1.2.0. CodexGauge 1.1.1 and earlier remain 
 - Live tasks on this Mac, including phase, current-turn duration, rolling token rate, token mix, latest context use, response-start latency, and linked-agent count
 - Up to 200 recent local root tasks from the previous 24 hours
 - Account-wide daily activity, period comparisons, lifetime tokens, streaks, peak day, and longest turn
-- Optional allowance and privacy-safe task-attention notifications
+- Per-event Mac and iPhone notifications for low allowances, task working, task input/approval, task completion, banked resets, and allowance resets
+- Account-scoped reset detection and snapshot-based catch-up
 
 Task token rates measure local activity. They are not a task’s share of the account allowance. Tasks that run only on another computer are not visible locally.
 
@@ -70,9 +74,9 @@ Menu-bar countdowns are updated by a local one-shot timer only when their displa
 
 ## Privacy
 
-CodexGauge has no analytics, backend, updater, or telemetry upload. It does not model or retain prompts, answers, reasoning, command output, tool contents, email, credentials, or authentication tokens.
+CodexGauge has no analytics or account login of its own. The development iPhone companion can send a bounded usage/task snapshot to an explicitly configured Cloudflare relay. It does not retain prompts, answers, reasoning, command output, tool contents, raw email, or Codex credentials. It derives a local account fingerprint from helper-provided account identity for reset comparisons.
 
-Only preferences, notification deduplication keys, and the latest account snapshot are persisted. Task identifiers and telemetry remain in memory. Notification Center receives generic attention text without task names. See [PRIVACY.md](PRIVACY.md) for the complete boundary.
+Preferences, notification deduplication keys, the latest account snapshot, and configured reset-monitor state are persisted. Raw task identifiers and detailed telemetry remain in memory; pending task alerts retain their titles and project names until delivery. Salted task-identifier hashes and event timestamps support alert deduplication. Task alerts include their task names and associated project names in Notification Center. See [PRIVACY.md](PRIVACY.md) for the complete boundary.
 
 ## Build and test
 
@@ -106,11 +110,17 @@ The committed budgets require a closed app to average under 1% CPU and remain be
 
 The application target uses macOS 14.4, hardened runtime, no App Sandbox, `LSUIElement`, and the Standard Architectures setting. Release archives contain exactly the native `arm64` and `x86_64` slices. The checked-in Icon Composer source is compiled with the asset catalog so current macOS releases use the native layered icon and older supported releases receive Xcode's compatibility representation.
 
+Mac App Store distribution remains an investigation. A [signed sandbox prototype](Experiments/SandboxCompatibility/README.md) verified user-selected fixture access, launching the installed Codex helper, and initializing app-server with a writable fixture directory. Read-only access failed because Codex initializes SQLite state there. The probe also restored folder/helper bookmarks and received filesystem events after relaunch. It exposed and helped fix an ancestor-directory access issue in the production file reader. A separately approved check passed saved sign-in and authenticated allowance access using the installed bundled helper, with temporary grants and no account details logged.
+
+The [full-app sandbox preview](Experiments/StorePreview/README.md) now adds native folder/helper selection, persisted security-scoped grants, and an isolated `CodexGaugeStorePreview` target with no Sparkle dependency. With user-approved real-folder access, it restored grants after relaunch, fetched fresh account allowances, and observed live task-data changes. Controlled running, input, approval, completion and monitor-restart checks also passed inside the sandbox. Dashboard visual inspection, actual system sleep/wake, and the supported OS/helper matrix remain to be verified. Apple's [review guidelines](https://developer.apple.com/app-store/review/guidelines/) separately cover sandboxing and the dependency on another installed app. Directly distributed builds integrate [Sparkle](https://sparkle-project.org/documentation/) for signed updates. Development and beta builds never start the updater. The public update feed and dedicated update-signing key are deliberately not configured yet; see [update distribution](Updates/README.md) before enabling them for a release.
+
 ## Troubleshooting
 
 ### Usage is unavailable
 
 Open ChatGPT and confirm that you are signed in. CodexGauge keeps trying automatically. If it cannot find Codex, choose the helper in Settings; a manually selected helper is launched and initialized before CodexGauge accepts it.
+
+Helper discovery supports the ChatGPT/Codex application bundles and OpenAI-signed standalone helpers in `~/.codex/packages/standalone/current/bin/codex`, `~/.local/bin/codex`, and common Homebrew locations. Every candidate is signature-validated before launch. Local task monitoring runs independently of helper discovery; the disconnected popover presents recovery actions, and local task data remains accessible in the Dashboard.
 
 ### A task is missing
 
@@ -122,9 +132,17 @@ CodexGauge retains the last successful account snapshot while offline or signed 
 
 ### Notifications do not appear
 
-Check **Settings > Notifications**. If permission is denied, use **Open Notification Settings**. Each allowance threshold is sent once per reset cycle. A task attention alert is sent only for an exact local input or approval request.
+Enable Mac notifications independently for each event in **Settings > Notifications**: allowance low, task working, task needs input or approval, task completed, banked reset added, and allowance reset. Enabling an alert requests permission only when needed; macOS controls delivery permissions. Preferences are kept if permission is denied, and current authorization is checked before scheduling. iPhone alert choices are independent and configured in the companion app.
+
+Each allowance threshold is sent once per reset cycle. Working alerts follow observed running-state transitions. Input/approval and completion alerts require an exact local event; an idle task alone does not count as completed. Existing task history is silently baselined. Task messages include titles and saved project names when available, and omit workspace paths, prompts, and answers. Existing alert choices migrate; task-working and task-completed alerts start off.
+
+Monitoring uses the configured allowance refresh cadence and Codex change events while the Mac is awake, including when locked. It refreshes after waking. Reset monitoring starts with a silent baseline and reports detectable changes after reconnecting only when account continuity can be established. Snapshot comparisons cannot reconstruct every intermediate reset; usage-only reset detection requires a confirming sample.
 
 ## Authentic releases
+
+For a local side-by-side candidate, run `./Scripts/package-beta.sh`. It builds a Universal 2 **CodexGauge Beta.app** and DMG under `.build/beta/`, using the current working tree and installed Xcode. `BETA_VERSION`, `BETA_BUILD`, `BETA_LABEL`, and `BETA_OUTPUT_ROOT` override candidate metadata and output. It uses the local Developer ID identity when available (or `DEVELOPER_ID_APPLICATION`), falling back to ad-hoc signing. This workflow does not tag, publish, notarize, or substitute for production release gates.
+
+Beta builds use `com.northwolflabs.CodexGauge.beta`, separate preferences and Application Support files. By default, **β** replaces the normal gauge icon; Menu Bar settings can switch it back to the gauge or hide the icon. The preview uses the same icon renderer, and warning symbols still appear when needed. Both apps read the existing Codex sign-in. Stable builds keep their existing storage locations.
 
 Official downloads are published through this repository's GitHub Releases page. Starting with version 1.2.0, the `-universal.dmg` contains both Apple-silicon and Intel slices; a separate architecture-specific download is unnecessary. Each release also contains a `SHA256SUMS` file for that download. Debug symbols, build records, and notarization receipts are retained separately as release-engineering records. Private signing and publication procedures are intentionally not documented in this public repository.
 
@@ -133,3 +151,61 @@ Official downloads are published through this repository's GitHub Releases page.
 See [CONTRIBUTING.md](CONTRIBUTING.md), [SUPPORT.md](SUPPORT.md), [SECURITY.md](SECURITY.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 CodexGauge is licensed under [Apache License 2.0](LICENSE).
+
+## iPhone companion (development)
+
+`Companion/CodexGaugeMobile.xcodeproj` contains the native iPhone/iPad app and Home Screen/Lock Screen widgets. This is a development build, not a published App Store or TestFlight release. The Mac keeps collecting data; the phone only views it. There is no command, approval, or task-control endpoint.
+
+The Overview combines allowances and active tasks, Tasks groups work by Mac, and Activity shows aggregate usage. Running tasks and explicit requests for input or approval are active; completed tasks waiting for a follow-up are not. Several linked Macs with the same helper-provided account ID share one allowance observation—the newest available—not a sum. Distinct accounts remain separate. If account identity is unavailable, installations remain separate rather than guessing. Both foreground screens and widgets retain the last observation and indicate freshness.
+
+Available credits appear alongside banked resets in Overview and in the medium Home Screen widget. The Mac popover and Limits dashboard also show the balance. Balances retain the value provided by Codex, including decimal amounts and unlimited status; a missing credit observation is not treated as zero. Activity has selectable 7-, 30-, and 90-day token charts with daily selection and averages. Each task detail has a five-minute throughput chart built from observations received while the phone is connected. Reconnection gaps remain gaps rather than invented samples.
+
+**Settings → Live Activities → Follow active tasks** enables native ActivityKit cards on the Lock Screen and Dynamic Island. On first use, iOS may ask you to allow Live Activities on the Lock Screen card. Accept that prompt to enable background updates; ordinary notification permission is separate. One activity summarizes each active Mac, prioritizing tasks needing input or approval and showing working/waiting counts. Tapping opens the read-only task detail. The relay sends ActivityKit start/update/end pushes; iOS 17.2+ supports remote starts, while iOS 17.0/17.1 requires the app to start an activity in the foreground. State transitions are sent promptly, foreground rate updates are limited to once every five seconds, and background rate-only updates are limited to roughly once a minute. APNs and ActivityKit scheduling are controlled by Apple, so these are not one-second delivery guarantees. Observations become stale after 90 seconds; disconnected Macs never receive fabricated fresh timestamps. See [Apple's ActivityKit push documentation](https://developer.apple.com/documentation/activitykit/starting-and-updating-live-activities-with-activitykit-push-notifications).
+
+User dismissal suppresses a Mac's activity until its active tasks have cleared. Switching Live Activities off and on explicitly resets that choice. Unlinking, replacing viewing access, or disabling Live Activities ends the local cards. Usage-only links cannot register task Live Activities. ActivityKit payload/access-control tests pass. Real APNs start → needs approval → end was verified with the simulator app backgrounded on September 30, 2026. The same background start → approval → end lifecycle also passed on the physical iPhone 17 Pro after accepting the separate Always Allow prompt. Tapping the native card also opened the correct read-only task and Mac; see the development review for test details and remaining limits. `CompanionLiveActivityUITests` is an opt-in real-APNs check (`COMPANION_LIVE_ACTIVITY_TEST=1`); physical runs additionally require `COMPANION_LIVE_ACTIVITY_PHYSICAL_TEST=1`. It uses a disposable feed and a separate test Keychain service, then restores the normal app on the phone.
+
+The Hono relay in `Companion/Relay` uses one Cloudflare Durable Object per Mac feed and one per push device. The foreground app receives WebSocket snapshots. Widgets fetch a snapshot when iOS grants a timeline refresh; their refresh cadence is controlled by iOS. Alert changes are queued separately for APNs with bounded retries, one-hour expiry, and shared-account deduplication. Delivery remains best effort. Neither a sleeping Mac nor an offline relay can provide fresh task state.
+
+For local development:
+
+```sh
+cd Companion/Relay
+vp install
+vp run dev
+# In another terminal, with this relay on port 8789:
+vp node --experimental-strip-types tests/fixtures.ts
+```
+
+Open the companion project in Xcode and run the `CodexGaugeMobile` scheme in an iPhone simulator. The `-companionDemo` launch argument shows fixed preview data; `-companionRelayDemo` shows two synthetic Mac feeds from `http://127.0.0.1:8789`. These are DEBUG-only fixtures, not real accounts. The relay test suite uses the same port (override with `RELAY_URL`). Run `vp run typecheck`, `vp run test`, and `swift test --package-path Companion` from the appropriate directories. `Scripts/generate-companion-project.rb` regenerates only the companion Xcode project. For a repeatable isolated core/relay check, run `./Scripts/check-companion.sh` from the repository root. This also runs Foundation WebSocket deadline/cancellation tests against a disposable loopback fixture; it does not open app windows or run UI tests. The [simulator acceptance review](Review/Simulator-Acceptance-2026-09-30.md) records the latest fixes and runtime verification; the [development review](Review/2026-09-30.md) retains earlier evidence and distribution gates.
+
+Normal linking starts in **Mac Settings → General → iPhone companion**. Configure the relay, then copy a viewing link into the mobile app. Full links include task/project names; usage-only links exclude tasks. Each Mac has independent random publisher and viewing credentials. Replacing its links closes existing viewers and revokes their push subscriptions. **Disconnect and delete relay data** removes that Mac's stored feed. Credentials live in Keychain; the app and widget share read credentials through their Keychain access group. Simulator linking tests must use ad-hoc signing (`CODE_SIGN_IDENTITY=-`), not `CODE_SIGNING_ALLOWED=NO`, so the Keychain group is available.
+
+The development relay is deployed at `https://codexgauge-relay-dev.north-wolf-labs.workers.dev`; Debug Mac builds prefill that address, with sharing off until connected. The iOS app shares the stable Mac bundle ID, `com.northwolflabs.CodexGauge`; its widget uses `com.northwolflabs.CodexGauge.widgets`. Mac beta builds retain their separate `.beta` identity. The mobile project uses automatic signing and separate app-group and push entitlements. Device push delivery and Home Screen/Lock Screen widget appearance have been checked as described below. Mac App Store compatibility remains under investigation. There is no TestFlight or release publication step in this workflow.
+
+APNs uses a server-side `APNS_PRIVATE_KEY` Worker secret. Keep the complete multiline `.p8` contents in Infisical; never put the key in source control or either client app. The Team ID, Key ID, and app bundle ID are ordinary relay configuration. After linking this repository to your Infisical project, deploy with `uv run --script Scripts/deploy-companion-relay.py --secret-env <environment-slug>`. The script fetches only that secret, validates it, gives Wrangler a permission-restricted temporary file, and removes the file afterward. Infisical environment names are independent of Apple's sandbox/production push environments. App builds and tests do not require the key; a future deployment workflow can retrieve it through Infisical OIDC instead of duplicating it in GitHub secrets. Apple provider tokens are reused for 50 minutes before refresh.
+
+On the phone, **Settings → Alerts → Send test notification** exercises the actual relay and APNs connection, independently of which alert types are enabled. It requests notification permission when needed and distinguishes Apple acceptance from confirmed on-device display. Tests are limited to one every 30 seconds per device and require a current viewing subscription. Invalid device registrations are retired instead of retried; temporary delivery failures use the bounded retry queue. The relay uses Workers' supported manual redirect mode and never follows a redirect with Apple credentials.
+
+Real APNs acceptance, a visible test banner, and an automatic task-completion notification while the app was backgrounded were verified on the Apple-silicon iOS 27 simulator on September 29, 2026. This is separate from physical-device provisioning and delivery verification. The opt-in `CompanionPushUITests` uses a disposable cloud feed and no real task content; enable `COMPANION_LIVE_PUSH_TEST=1` in its test runner environment to run it. Routine UI tests skip that external integration check.
+
+The small Home Screen widget was installed through the simulator's widget gallery and visually verified with synthetic usage data. Enable `COMPANION_WIDGET_TEST=1` to run that opt-in UI check on a dedicated simulator; it changes the Home Screen layout. When a known reset time passes before fresh data arrives, the widget keeps the last confirmed percentage and shows “Reset awaiting confirmation.”
+
+On September 29, 2026, the development app was installed on an iPhone 17 Pro running iOS 27. Cloud WebSocket updates and the read-only overview/task screens passed device checks. APNs accepted the test push, and the user confirmed receiving two test notifications on the paired Apple Watch. The automated iPhone-banner assertions did not pass; that is not a notification-delivery failure. The precise phone/Watch routing during the test was not established. An active Focus icon alone is not evidence that notifications were silenced, and the user's Personal Focus allows alerts. Apple's [notification forwarding documentation](https://developer.apple.com/documentation/watchos-apps/taking-advantage-of-notification-forwarding) explains that an iPhone push can appear on the phone or Watch. Keep user-confirmed Watch receipt separate from automated iPhone-banner verification.
+
+The physical phone was also linked to the running Mac beta using its viewing link. Live usage and task data appeared, the link survived termination and relaunch, and the small Home Screen widget displayed the Mac’s actual usage. The opt-in `COMPANION_PAIRED_DEVICE_TEST=1` check preserves that link and reuses an existing visible widget; adding one requires an empty area on the current Home Screen. Phone alert types are selected independently under Settings → Alerts.
+
+Circular, rectangular, and inline Lock Screen widgets were placed in the physical iPhone’s wallpaper editor and visually checked against real linked-Mac usage on September 29, 2026. The rectangular reset countdown now fits a nearly week-long interval without truncation. Edits were canceled to preserve the existing wallpaper and widget arrangement. `COMPANION_LOCK_WIDGET_TEST=1` enables the placement/screenshot check, with `COMPANION_LOCK_WIDGET_STYLE` set to `circular`, `rectangular`, or `inline`. This opt-in check is specific to the recorded iPhone 17 Pro/iOS 27 wallpaper arrangement (Calendar, Weather, Fitness below the large clock); do not run it against an arbitrary personal layout. Screenshot attachments require visual inspection. A real task-completion banner was also observed on the physical phone during this verification, independently of the earlier test-push assertions.
+
+For initial device setup, pair/trust the Mac, enable Developer Mode, and register the phone through Xcode's Signing & Capabilities if its profiles do not yet include it. A misleading command-line “No Accounts” error can accompany missing provisioning even when Xcode is signed in.
+
+### Icon artwork
+
+`CodexGauge/AppIcon.icon` is the source for the current app icon. macOS renders its Default (blue) or Dark (black) appearance; the `.icns` resource is a static Default fallback. `CodexGauge/Branding` contains the matching 1024px PNG exports for this README and other branding. The legacy asset catalog is generated from this same source.
+
+Regenerate exports with `Scripts/export-branding.sh` using Xcode 27’s Icon Composer tool and ImageMagick. The export pins design generation 27 and losslessly compresses the branding PNGs below 2 MB, retaining transparency. Normal source builds use the checked-in PNGs and do not need either export tool. Review both appearances when changing the source icon.
+
+### Companion review checks
+
+Task-alert taps open the linked task’s current read-only detail. Allowance-alert taps return to Overview. An unavailable task is labeled as such instead of retaining an old navigation value. Invalid viewing links open the linking form with an error so they can be corrected.
+
+The isolated check script also validates Swift-produced Unicode JSON against the relay schema, concurrent phone subscriptions, burst update ordering, feed deletion/recreation, and APNs payload size. A [headless relay latency probe](Performance/README.md#companion-relay-latency) measures transport without opening apps or sending push notifications. Installed development builds, runtime evidence, and remaining acceptance checks are listed in [the development review](Review/2026-09-30.md).

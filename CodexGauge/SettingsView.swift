@@ -37,6 +37,20 @@ struct SettingsView: View {
 
     private var general: some View {
         Form {
+            CompanionSettingsView(publisher: state.companion)
+            if AppUpdater.shared.isAvailable {
+                Section("App updates") {
+                    Toggle("Automatically check for updates", isOn: Binding(
+                        get: { AppUpdater.shared.automaticallyChecksForUpdates },
+                        set: { AppUpdater.shared.automaticallyChecksForUpdates = $0 }
+                    ))
+                    Button("Check for Updates…") { AppUpdater.shared.checkForUpdates() }
+                        .disabled(!AppUpdater.shared.canCheckForUpdates)
+                    if let error = AppUpdater.shared.errorMessage {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
+                }
+            }
             Section("Startup") {
                 Toggle("Launch CodexGauge at login", isOn: Binding(
                     get: { settings.launchAtLogin },
@@ -64,26 +78,47 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("Codex") {
+                if state.codexAccess.isRequired {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Codex data folder").font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 10) {
+                            Text(state.codexAccess.directoryURL?.path ?? "Not selected")
+                                .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Choose…", action: chooseCodexDirectory)
+                                .fixedSize()
+                                .disabled(state.isChoosingCodexAccess)
+                                .accessibilityIdentifier("choose-codex-directory")
+                        }
+                    }
+                }
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Codex helper")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 10) {
-                        Text(state.executableURL?.path ?? "Not found")
+                        Text(state.codexAccess.helperURL?.path ?? state.executableURL?.path ?? "Not found")
                             .foregroundStyle(state.executableURL == nil ? .red : .secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .frame(maxWidth: .infinity, alignment: .leading)
                         Button("Choose…", action: chooseExecutable)
                             .fixedSize()
+                            .disabled(state.isChoosingCodexAccess)
+                            .accessibilityIdentifier("choose-codex-helper")
                     }
                 }
-                TextField("Codex data folder", text: $settings.codexHomeOverride, prompt: Text("~/.codex"))
+                if !state.codexAccess.isRequired {
+                    TextField("Codex data folder", text: $settings.codexHomeOverride, prompt: Text("~/.codex"))
                     .focused($codexHomeFocused)
                     .onSubmit { Task { await state.reconnect() } }
                     .onChange(of: codexHomeFocused) { _, focused in
                         if !focused { Task { await state.reconnect() } }
                     }
+                } else {
+                    Text("Select your .codex folder and the Codex helper installed by OpenAI. Access is remembered on this Mac. The helper needs write access for its own account and session database.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 if let error = state.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .font(.caption)
@@ -118,27 +153,10 @@ struct SettingsView: View {
 
     private var notifications: some View {
         Form {
-            Section("Notification permission") {
-                LabeledContent("Status", value: notificationStatusLabel)
-                if state.notificationAuthorization == .denied {
-                    Button("Open Notification Settings") {
-                        state.openNotificationSettings()
-                    }
-                } else if state.notificationAuthorization == .notDetermined {
-                    Button("Allow Notifications") {
-                        Task { _ = await state.requestNotificationPermission() }
-                    }
-                }
-            }
-
             Section {
-                Toggle("Notify me when an allowance runs low", isOn: $settings.quotaNotificationsEnabled)
-                    .accessibilityIdentifier("allowance-alerts-toggle")
-                    .onChange(of: settings.quotaNotificationsEnabled) { _, enabled in
-                        if enabled { Task { _ = await state.requestNotificationPermission() } }
-                    }
+                alertToggle(.low)
 
-                if settings.quotaNotificationsEnabled {
+                if settings.destination(for: .low) != .off {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach($thresholdRules) { $rule in
                             HStack(spacing: 6) {
@@ -194,20 +212,20 @@ struct SettingsView: View {
                         .disabled(thresholdRules.count >= 99)
                     }
                 }
+                alertToggle(.working)
+                alertToggle(.attention)
+                alertToggle(.completed)
+                alertToggle(.banked)
+                alertToggle(.allowance)
             } header: {
-                Text("Allowance alerts")
+                Text("On this Mac")
             } footer: {
-                if settings.quotaNotificationsEnabled {
-                    Text("Each alert is sent once per allowance window and becomes available again after the allowance resets.")
+                if settings.destination(for: .low) != .off {
+                    Text("Each allowance alert is sent once per window and becomes available again after the allowance resets.")
                 }
+
             }
 
-            Section("Task alerts") {
-                Toggle("Notify me when a task asks for input or approval", isOn: $settings.attentionNotificationsEnabled)
-                    .onChange(of: settings.attentionNotificationsEnabled) { _, enabled in
-                        if enabled { Task { _ = await state.requestNotificationPermission() } }
-                    }
-            }
         }
         .formStyle(.grouped)
         .onChange(of: focusedThresholdID) { oldValue, newValue in
@@ -222,9 +240,15 @@ struct SettingsView: View {
             }
 
             Section {
-                Toggle("Show gauge icon", isOn: gaugeVisibilityBinding)
+                Toggle(state.identity.isBeta ? "Show icon" : "Show gauge icon", isOn: gaugeVisibilityBinding)
                     .accessibilityIdentifier("menu-bar-show-gauge")
                     .help("Show or hide the gauge symbol in the menu bar.")
+                if state.identity.isBeta {
+                    Toggle("Use beta icon", isOn: menuBarBinding(\.usesBetaIcon))
+                        .disabled(!settings.menuBarConfiguration.showsGauge)
+                        .accessibilityIdentifier("menu-bar-beta-icon")
+                        .help("Use β in place of the gauge. Warning symbols still appear when needed.")
+                }
                 Toggle("Show remaining percentage", isOn: percentageVisibilityBinding)
                     .accessibilityIdentifier("menu-bar-show-percentage")
                     .help("Show the remaining percentage for the selected allowance.")
@@ -370,8 +394,10 @@ struct SettingsView: View {
     private var menuBarPreview: some View {
         let presentation = menuBarPresentation
         return HStack(spacing: 5) {
-            if let symbol = presentation.symbolName {
-                Image(systemName: symbol)
+            if let symbol = presentation.symbolName,
+               let image = StatusItemSymbolRenderer.image(named: symbol, color: nil,
+                   usesBetaGlyph: presentation.usesBetaGlyph(configuration: settings.menuBarConfiguration, identity: state.identity)) {
+                Image(nsImage: image)
                     .foregroundStyle(previewColor(presentation.symbolSeverity))
                     .accessibilityHidden(true)
             }
@@ -388,7 +414,7 @@ struct SettingsView: View {
         .frame(maxWidth: .infinity)
         .background(.bar, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(presentation.accessibilityLabel)
+        .accessibilityLabel((presentation.usesBetaGlyph(configuration: settings.menuBarConfiguration, identity: state.identity) ? "Beta icon. " : "") + presentation.accessibilityLabel)
         .accessibilityIdentifier("menu-bar-preview")
     }
 
@@ -597,6 +623,7 @@ struct SettingsView: View {
         panel.title = "Choose Codex Helper"
         panel.prompt = "Choose"
         panel.canChooseDirectories = false
+        panel.showsHiddenFiles = true
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url {
             state.executableValidationMessage = "Checking Codex helper…"
@@ -604,15 +631,34 @@ struct SettingsView: View {
         }
     }
 
-    private var notificationStatusLabel: String {
-        switch state.notificationAuthorization {
-        case .notDetermined: "Not requested"
-        case .denied: "Not allowed"
-        case .authorized: "Allowed"
-        case .provisional: "Delivered quietly"
-        case .unavailable: "Unavailable"
+    private func chooseCodexDirectory() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Codex Data Folder"
+        panel.prompt = "Choose"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.showsHiddenFiles = true
+        panel.directoryURL = state.codexAccess.directoryURL
+        if panel.runModal() == .OK, let url = panel.url {
+            Task { await state.useCodexDirectory(url) }
         }
     }
+
+    private func alertToggle(_ kind: ResetAlertKind) -> some View {
+        Toggle(kind.title, isOn: Binding(
+            get: { settings.destination(for: kind).apple },
+            set: { enabled in
+                let before = settings.destination(for: kind).apple
+                settings.setDestination(enabled ? .apple : .off, for: kind)
+                state.alertRoutesChanged()
+                if enabled && !before { Task { _ = await state.requestNotificationPermission() } }
+            }
+        ))
+        .accessibilityIdentifier("alert-destination-\(kind.rawValue)")
+    }
+
+
 }
 
 #Preview("General Settings") {

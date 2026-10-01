@@ -1,0 +1,54 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "codexgauge-relay-dev",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-29",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "workers_dev": true,
+  "preview_urls": false,
+  "ratelimits": [
+    { "name": "CREATE_LIMIT", "namespace_id": "3092901", "simple": { "limit": 20, "period": 60 } },
+    { "name": "REQUEST_LIMIT", "namespace_id": "3092902", "simple": { "limit": 180, "period": 60 } }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MACS",
+        "class_name": "MacFeed"
+      },
+      {
+        "name": "RECEIVERS",
+        "class_name": "PushReceiver"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "MacFeed"
+      ]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": [
+        "PushReceiver"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": false
+  },
+  "vars": {
+    "APNS_KEY_ID": "G6J2XSQR62",
+    "APNS_TEAM_ID": "ALPX923Y54",
+    "APNS_BUNDLE_ID": "com.northwolflabs.CodexGauge"
+  },
+  "secrets": {
+    "required": [
+      "APNS_PRIVATE_KEY"
+    ]
+  }
+}

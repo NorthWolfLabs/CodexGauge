@@ -87,6 +87,7 @@ enum StatusColorTarget: String, Codable, CaseIterable, Sendable {
 
 struct MenuBarConfiguration: Codable, Equatable, Sendable {
     var showsGauge = true
+    var usesBetaIcon = true
     var showsPercentage = true
     var primaryAllowance: AllowanceSelection = .limitingCodex
     var secondaryAllowance: AllowanceSelection?
@@ -101,6 +102,7 @@ struct MenuBarConfiguration: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case showsGauge
+        case usesBetaIcon
         case showsPercentage
         case primaryAllowance
         case secondaryAllowance
@@ -116,6 +118,7 @@ struct MenuBarConfiguration: Codable, Equatable, Sendable {
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
+        usesBetaIcon = try values.decodeIfPresent(Bool.self, forKey: .usesBetaIcon) ?? true
         showsGauge = try values.decodeIfPresent(Bool.self, forKey: .showsGauge) ?? true
         showsPercentage = try values.decodeIfPresent(Bool.self, forKey: .showsPercentage) ?? true
         primaryAllowance = try values.decodeIfPresent(AllowanceSelection.self, forKey: .primaryAllowance) ?? .limitingCodex
@@ -130,6 +133,7 @@ struct MenuBarConfiguration: Codable, Equatable, Sendable {
 
     func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(usesBetaIcon, forKey: .usesBetaIcon)
         try values.encode(showsGauge, forKey: .showsGauge)
         try values.encode(showsPercentage, forKey: .showsPercentage)
         try values.encode(primaryAllowance, forKey: .primaryAllowance)
@@ -183,6 +187,10 @@ struct MenuBarTextSegment: Equatable, Sendable {
 }
 
 struct MenuBarPresentation: Equatable, Sendable {
+    func usesBetaGlyph(configuration: MenuBarConfiguration, identity: AppIdentity) -> Bool {
+        identity.isBeta && configuration.usesBetaIcon && symbolName?.hasPrefix("gauge.") == true
+    }
+
     let symbolName: String?
     let symbolSeverity: MenuBarSeverity
     let segments: [MenuBarTextSegment]

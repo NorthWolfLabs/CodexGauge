@@ -34,17 +34,21 @@ struct ContentView: View {
     }
 
     var body: some View {
+        // NSPopover supplies the native glass and accessibility fallback.
+        // A root material here would cover it with a second, flatter surface.
         VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     statusSection
-                    Divider()
-                    limitsSection
-                    Divider()
-                    conversationsSection
-                    if let activity = state.accountSnapshot?.activity, activity != .empty {
+                    if state.showsAccountSnapshot {
                         Divider()
-                        activitySection(activity)
+                        limitsSection
+                        Divider()
+                        conversationsSection
+                        if let activity = state.accountSnapshot?.activity, activity != .empty {
+                            Divider()
+                            activitySection(activity)
+                        }
                     }
                 }
             }
@@ -53,17 +57,17 @@ struct ContentView: View {
         }
         .frame(width: 390)
         .frame(maxHeight: 730)
-        .background(.regularMaterial)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("gauge-panel")
         .onChange(of: state.hasLoadedConversations) { _, _ in onContentSizeInvalidated() }
         .onChange(of: state.conversations.count) { _, _ in onContentSizeInvalidated() }
         .onChange(of: state.accountSnapshot?.buckets.count) { _, _ in onContentSizeInvalidated() }
+        .onChange(of: state.showsAccountSnapshot) { _, _ in onContentSizeInvalidated() }
     }
 
     private var statusSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let snapshot = state.accountSnapshot, let limiting = snapshot.limitingWindow {
+            if state.showsAccountSnapshot, let snapshot = state.accountSnapshot, let limiting = snapshot.limitingWindow {
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("\(limiting.remainingPercent)%")
@@ -110,16 +114,26 @@ struct ContentView: View {
                     .accessibilityIdentifier("menu-bar-status-notice")
                 }
             } else {
-                ContentUnavailableView {
-                    Label("Allowance data unavailable", systemImage: "gauge.with.needle")
-                } description: {
-                    Text("Open ChatGPT to connect. CodexGauge will keep trying automatically.")
-                } actions: {
-                    HStack {
+                VStack(spacing: 16) {
+                    Image(systemName: "gauge.with.needle")
+                        .font(.system(size: 32)).foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    Text("Allowance data unavailable").font(.headline)
+                    Text(state.codexAccess.isRequired
+                         ? "Select your Codex data folder and helper in Settings."
+                         : "Open ChatGPT to connect. CodexGauge will keep trying automatically.")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 12) {
                         Button("Open ChatGPT", action: state.openChatGPT)
+                            .fixedSize()
                         Button("Settings…", action: onShowSettings)
+                            .fixedSize()
                     }
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
                 .accessibilityIdentifier("usage-unavailable")
             }
         }
@@ -154,6 +168,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Limits").font(.headline)
             if let snapshot = state.accountSnapshot {
+                AccountBalancesView(snapshot: snapshot, compact: true)
                 ForEach(snapshot.buckets) { bucket in
                     QuotaBucketView(
                         bucket: bucket,
@@ -414,9 +429,6 @@ private struct QuotaBucketView: View {
                 ForEach(bucket.windows) { window in
                     QuotaWindowView(window: window, isFresh: isFresh, now: now, clock: clock)
                 }
-                if let credits = bucket.credits, credits.hasCredits {
-                    detail("Credits", credits.unlimited ? "Unlimited" : credits.balance ?? "Available")
-                }
                 if let spend = bucket.spendControl {
                     detail("Spend control", "\(spend.used) of \(spend.limit)")
                     detail("Spend allowance", "\(spend.remainingPercent)% remaining")
@@ -425,7 +437,6 @@ private struct QuotaBucketView: View {
                     Label("Spend control reached", systemImage: "exclamationmark.octagon.fill")
                         .foregroundStyle(.red)
                 }
-                if let earnedResetCount { detail("Earned resets", "\(earnedResetCount)") }
             }
             .padding(.top, 10)
         } label: {
@@ -538,8 +549,10 @@ private struct LiveConversationRow: View {
                     Spacer(minLength: 8)
 
                     VStack(alignment: .trailing, spacing: 1) {
+                        if (conversation.hasTokenObservation ?? (conversation.tokensPerMinute > 0)) && clock.now.timeIntervalSince(conversation.lastActivity) <= 90 {
                         AnimatedTokenRateText(rate: conversation.tokensPerMinute)
                             .font(.subheadline.weight(.medium).monospacedDigit())
+                        } else { Text("—").font(.subheadline) }
                         Text("tokens/min")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -553,20 +566,24 @@ private struct LiveConversationRow: View {
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: conversation.activity)
                     if let rawContext = conversation.latestContextPercent, rawContext.isFinite {
                         let context = min(100, max(0, rawContext))
-                        Label("\(Int(context.rounded()))% context", systemImage: "circle.dotted")
+                        Label("\(Int(context.rounded()))% \(conversation.contextIncludesAgent == true ? "agent context" : "context")", systemImage: "circle.dotted")
                             .contentTransition(.numericText())
                             .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: context)
                     }
                     if let startedAt = conversation.turnStartedAt {
-                        TurnDurationLabel(startedAt: startedAt, clock: clock)
+                        if clock.now.timeIntervalSince(conversation.lastActivity) > 90 { Label(GaugeFormatting.duration(max(0, conversation.lastActivity.timeIntervalSince(startedAt))), systemImage: "clock") }
+                        else { TurnDurationLabel(startedAt: startedAt, clock: clock) }
                     }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                if conversation.contextIncludesAgent == true {
+                    Text("Activity, model, context and elapsed are from the selected active agent.").font(.caption2).foregroundStyle(.secondary)
+                }
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(displayTitle), \(phaseTitle), \(GaugeFormatting.tokenRate(conversation.tokensPerMinute)) tokens per minute")
+            .accessibilityLabel("\(displayTitle), \(phaseTitle), \(!(conversation.hasTokenObservation ?? (conversation.tokensPerMinute > 0)) || clock.now.timeIntervalSince(conversation.lastActivity) > 90 ? "Rate unavailable" : GaugeFormatting.tokenRate(conversation.tokensPerMinute) + " tokens per minute")")
         }
         .padding(12)
         .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
@@ -584,7 +601,8 @@ private struct LiveConversationRow: View {
     }
 
     private var phaseTitle: String {
-        switch conversation.state {
+        if clock.now.timeIntervalSince(conversation.lastActivity) > 90 { return "Last seen: " + conversation.state.title.lowercased() }
+        return switch conversation.state {
         case .needsApproval: "Approval needed"
         case .needsInput: "Input needed"
         default: conversation.activity.title
@@ -724,7 +742,7 @@ private struct RecentConversationDetails: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                ConversationMetricCard(title: "Total tokens", value: GaugeFormatting.tokenCount(conversation.totalTokens), unit: "tokens")
+                ConversationMetricCard(title: "Recorded tokens", value: conversation.hasTokenObservation == true || conversation.totalTokens > 0 ? GaugeFormatting.tokenCount(conversation.totalTokens) : "—", unit: "tokens")
                 ConversationMetricCard(title: "Last turn", value: conversation.lastTurnDurationSeconds.map(GaugeFormatting.coarseDuration) ?? "—", unit: "duration")
                 ConversationMetricCard(
                     title: "Latest output",
@@ -842,4 +860,35 @@ private struct TurnDurationLabel: View {
 
 #Preview("Populated") {
     ContentView(state: DemoData.state(), clock: VisibleSurfaceClock())
+}
+
+/// Account balances are independent of timed allowance windows.
+struct AccountBalancesView: View {
+    let snapshot: AccountSnapshot
+    var compact = false
+    var body: some View {
+        if snapshot.earnedResetCount != nil || snapshot.buckets.contains(where: { $0.credits != nil }) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Account balances").font(compact ? .caption.weight(.semibold) : .headline).foregroundStyle(.secondary)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: compact ? 140 : 180), alignment: .leading)], alignment: .leading, spacing: 12) {
+                    if let count = snapshot.earnedResetCount { balance("Banked resets", count.formatted(), symbol: "arrow.clockwise") }
+                    ForEach(snapshot.buckets) { bucket in
+                        if let credits = bucket.credits {
+                            balance(snapshot.buckets.filter { $0.credits != nil }.count > 1 ? bucket.name + " credits" : "Credits available", credits.displayBalance, symbol: "creditcard")
+                        }
+                    }
+                }
+            }.padding(compact ? 12 : 16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.quaternary.opacity(compact ? 0.4 : 0.3), in: RoundedRectangle(cornerRadius: 10))
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("account-balances")
+        }
+    }
+    private func balance(_ title: String, _ value: String, symbol: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(title, systemImage: symbol).font(.caption).foregroundStyle(.secondary)
+            Text(value).font(compact ? .title3.weight(.semibold) : .title2.weight(.semibold)).monospacedDigit()
+        }.accessibilityElement(children: .ignore).accessibilityLabel("\(title): \(value)")
+    }
 }

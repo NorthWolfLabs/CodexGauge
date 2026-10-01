@@ -97,9 +97,11 @@ actor CodexAppServerClient: AccountTelemetryProviding {
 
     private let executableURL: URL
     private let codexHomeURL: URL
+    private let scopedResources: [ScopedCodexResource]
     private let clock: any ClockProviding
     private let executableValidator: any CodexExecutableValidating
     private let skipTrustValidation: Bool
+    private let personalIdentitySalt: String?
     private var process: Process?
     private var inputHandle: FileHandle?
     private var outputHandle: FileHandle?
@@ -117,13 +119,17 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         codexHomeURL: URL,
         clock: any ClockProviding = SystemClock(),
         executableValidator: any CodexExecutableValidating = DefaultCodexExecutableValidator(),
-        skipTrustValidation: Bool = false
+        skipTrustValidation: Bool = false,
+        personalIdentitySalt: String? = nil,
+        scopedResources: [ScopedCodexResource] = []
     ) {
         self.executableURL = executableURL
         self.codexHomeURL = codexHomeURL
+        self.scopedResources = scopedResources
         self.clock = clock
         self.executableValidator = executableValidator
         self.skipTrustValidation = skipTrustValidation
+        self.personalIdentitySalt = personalIdentitySalt
     }
 
     func events() async -> AsyncStream<AppServerEvent> {
@@ -141,7 +147,12 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         let data = try await request(method: "account/read", params: ["refreshToken": false])
         let account = try decode(AccountResponse.self, from: data)
         guard let accountValue = account.account else { throw CodexAppServerError.signedOut }
-        return AccountIdentity(accountType: accountValue.type, plan: accountValue.planType)
+        return AccountIdentity(
+            accountType: accountValue.type, plan: accountValue.planType,
+            personalAccountHash: personalIdentitySalt.flatMap { salt in
+                accountValue.email.flatMap { ResetAccountIdentity.emailHash($0, salt: salt) }
+            }, email: accountValue.email
+        )
     }
 
     func validateConnection() async throws {
@@ -156,7 +167,9 @@ actor CodexAppServerClient: AccountTelemetryProviding {
             plan: limits.rateLimits.planType,
             buckets: limits.buckets,
             earnedResetCount: limits.rateLimitResetCredits?.availableCount,
-            fetchedAt: clock.now
+            fetchedAt: clock.now,
+            accountID: limits.accountId,
+            resetCredits: limits.rateLimitResetCredits?.credits
         )
     }
 
@@ -235,7 +248,9 @@ actor CodexAppServerClient: AccountTelemetryProviding {
         environment["CODEX_HOME"] = codexHomeURL.path
         environment["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
         child.environment = environment
-        child.terminationHandler = { [weak self] _ in
+        child.terminationHandler = { [weak self, scopedResources] _ in
+            // The old grant must outlive an asynchronously terminating child during selection changes.
+            withExtendedLifetime(scopedResources) {}
             Task { await self?.processTerminated(generation: currentGeneration) }
         }
 
@@ -462,12 +477,16 @@ struct AccountResponse: Decodable {
     struct Account: Decodable {
         let type: String
         let planType: String?
+        let email: String?
     }
     let account: Account?
 }
 
 struct RateLimitsResponse: Decodable {
-    struct ResetCredits: Decodable { let availableCount: Int }
+    struct ResetCredits: Decodable {
+        let availableCount: Int
+        let credits: [ResetCredit]?
+    }
     struct Credits: Decodable {
         let hasCredits: Bool
         let unlimited: Bool
@@ -499,6 +518,7 @@ struct RateLimitsResponse: Decodable {
     let rateLimits: Snapshot
     let rateLimitsByLimitId: [String: Snapshot]?
     let rateLimitResetCredits: ResetCredits?
+    let accountId: String?
 
     var buckets: [QuotaBucket] {
         let values: [(String, Snapshot)]

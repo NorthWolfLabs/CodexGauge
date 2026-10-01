@@ -1,9 +1,13 @@
 import Foundation
 
-private struct DemoNotificationScheduler: NotificationScheduling {
-    let status: NotificationAuthorizationState
+private final class DemoNotificationScheduler: NotificationScheduling {
+    var status: NotificationAuthorizationState
+    init(status: NotificationAuthorizationState) { self.status = status }
 
-    func requestAuthorization() async -> Bool { status == .authorized }
+    func requestAuthorization() async -> Bool {
+        if status == .notDetermined { status = .authorized }
+        return status == .authorized
+    }
     func authorizationStatus() async -> NotificationAuthorizationState { status }
     func evaluate(snapshot: AccountSnapshot, thresholds: [Int]) async {}
     func evaluate(conversations: [ConversationTelemetry]) async {}
@@ -18,12 +22,15 @@ enum DemoData {
         demoDefaults.removePersistentDomain(forName: defaultsSuite)
         let notificationStatus: NotificationAuthorizationState = arguments.contains("-uiTestDeniedNotifications")
             ? .denied
-            : .authorized
+            : arguments.contains("-uiTestUnrequestedNotifications") ? .notDetermined : .authorized
+        let notificationScheduler = DemoNotificationScheduler(status: notificationStatus)
         let state = AppState(
             settings: SettingsStore(defaults: demoDefaults),
-            notifications: DemoNotificationScheduler(status: notificationStatus),
+            notifications: notificationScheduler,
+            identity: arguments.contains("-uiTestBeta") ? AppIdentity(bundleIdentifier: AppIdentity.betaBundleIdentifier) : .current,
             startImmediately: false
         )
+
         if arguments.contains("-uiTestInvalidThresholds") {
             state.settings.quotaNotificationsEnabled = true
             state.settings.notificationThresholds = [0, 100]
@@ -168,6 +175,10 @@ enum DemoData {
         } else if arguments.contains("-uiTestOffline") {
             state.freshness = .stale
             state.errorMessage = "Codex could not be reached. Showing the last update."
+        } else if arguments.contains("-uiTestMissingHelperCached") {
+            state.executableURL = nil
+            state.freshness = .stale
+            state.errorMessage = "Codex could not be found."
         } else if arguments.contains("-uiTestMissingHelper") {
             state.executableURL = nil
             state.accountSnapshot = nil

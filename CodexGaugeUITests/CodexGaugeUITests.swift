@@ -20,6 +20,130 @@ final class CodexGaugeUITests: XCTestCase {
     }
 
     @MainActor
+    func testSignedSandboxCandidateKeepsCurrentSurfaces() throws {
+        guard let path = ProcessInfo.processInfo.environment["CG_SANDBOX_CANDIDATE_APP"] else {
+            throw XCTSkip("Run with the reviewed signed candidate app path.")
+        }
+        XCUIApplication(bundleIdentifier: ProcessInfo.processInfo.environment["CG_SANDBOX_BUNDLE_ID"] ?? "com.northwolflabs.CodexGauge.beta").terminate()
+        let app = XCUIApplication(url: URL(fileURLWithPath: path))
+        app.launchArguments = ["-uiTestDemo"]
+        app.launch()
+        defer { app.terminate() }
+        let status = app.statusItems["codexgauge.statusItem"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        func shot(_ name: String, _ element: XCUIElement) {
+            let attachment = XCTAttachment(screenshot: element.screenshot())
+            attachment.name = "Signed sandbox — " + name
+            attachment.lifetime = .keepAlways
+            add(attachment)
+        }
+        status.click()
+        let panel = app.descendants(matching: .any)["gauge-panel"].firstMatch
+        XCTAssertTrue(panel.waitForExistence(timeout: 5))
+        XCTAssertTrue(panel.descendants(matching: .any)["account-allowance-card"].firstMatch.exists)
+        shot("menu card", panel)
+        status.rightClick()
+        app.menuItems["Open Dashboard…"].click()
+        let dashboard = app.windows["codexgauge.dashboardWindow"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 5))
+        app.activate()
+        for section in ["Overview", "Limits", "Tasks", "Activity"] {
+            dashboard.buttons[section].firstMatch.click()
+            shot(section, dashboard)
+        }
+        sendSettingsShortcut(to: app)
+        let general = app.windows["General"]
+        XCTAssertTrue(general.waitForExistence(timeout: 5))
+        XCTAssertTrue(general.buttons["choose-codex-directory"].exists)
+        XCTAssertTrue(general.buttons["choose-codex-helper"].exists)
+        XCTAssertFalse(general.buttons["Check for Updates…"].exists)
+        shot("General access", general)
+        general.buttons["Menu Bar"].click()
+        let menuBar = app.windows["Menu Bar"]
+        XCTAssertTrue(menuBar.waitForExistence(timeout: 5))
+        shot("Menu Bar settings", menuBar)
+        menuBar.buttons["Notifications"].click()
+        let notifications = app.windows["Notifications"]
+        XCTAssertTrue(notifications.waitForExistence(timeout: 5))
+        shot("Notifications", notifications)
+    }
+
+    @MainActor
+    func testSandboxMigrationPreservesExistingAppState() throws {
+        guard let path = ProcessInfo.processInfo.environment["CG_SANDBOX_CANDIDATE_APP"],
+              let expected = ProcessInfo.processInfo.environment["CG_SANDBOX_MIGRATION_EXPECTED"] else {
+            throw XCTSkip("Run with the local verification app and migration hashes.")
+        }
+        XCUIApplication(bundleIdentifier: ProcessInfo.processInfo.environment["CG_SANDBOX_BUNDLE_ID"] ?? "com.northwolflabs.CodexGauge.beta").terminate()
+        let app = XCUIApplication(url: URL(fileURLWithPath: path))
+        app.launchArguments = ["-verifySandboxMigration", expected]
+        app.launch()
+        let verification = app.windows["Sandbox Migration Verification"]
+        XCTAssertTrue(verification.waitForExistence(timeout: 8))
+        let values = verification.staticTexts.allElementsBoundByIndex.compactMap { $0.value as? String }
+        XCTAssertTrue(values.contains { $0.contains("Verification: Passed") }, values.joined(separator: "\n"))
+        let report = XCTAttachment(screenshot: verification.screenshot())
+        report.name = "Native sandbox migration — preservation counts"
+        report.lifetime = .keepAlways
+        add(report)
+        sendSettingsShortcut(to: app)
+        XCTAssertTrue(app.windows["General"].waitForExistence(timeout: 5))
+        // Leave the native General window open for the user's existing data grants.
+    }
+
+    @MainActor
+    func testSandboxRealAccountAndTasksRestoreAfterRelaunch() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CG_SANDBOX_REAL_ACCOUNT_CHECK"] == "1",
+              let path = environment["CG_SANDBOX_CANDIDATE_APP"],
+              let bundle = environment["CG_SANDBOX_BUNDLE_ID"] else {
+            throw XCTSkip("Opt in only for the authorized local account check.")
+        }
+        XCUIApplication(bundleIdentifier: bundle).terminate()
+        let app = XCUIApplication(url: URL(fileURLWithPath: path))
+        let expected = Data("{\"preferences\":{},\"files\":{}}".utf8).base64EncodedString()
+        app.launchArguments = ["-verifySandboxMigration", expected, "-showDashboard"]
+        app.launch()
+        let report = app.windows["Sandbox Migration Verification"].staticTexts["sandbox-migration-result"]
+        let ready = NSPredicate(format: "value CONTAINS %@ AND value CONTAINS %@ AND value CONTAINS %@", "Account fresh: true", "Tasks loaded: true", "Error: false")
+        expectation(for: ready, evaluatedWith: report)
+        waitForExpectations(timeout: 30)
+        let dashboard = app.windows["codexgauge.dashboardWindow"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 5))
+        dashboard.buttons["Tasks"].click()
+        let shot = XCTAttachment(screenshot: dashboard.screenshot())
+        shot.name = "Restored real local tasks in sandbox — \(bundle)"
+        shot.lifetime = .keepAlways
+        add(shot)
+        sendSettingsShortcut(to: app)
+        XCTAssertTrue(app.windows["General"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testInstalledSandboxConnectsWithSavedGrants() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CG_SANDBOX_REAL_ACCOUNT_CHECK"] == "1",
+              let path = environment["CG_SANDBOX_CANDIDATE_APP"],
+              let bundle = environment["CG_SANDBOX_BUNDLE_ID"] else {
+            throw XCTSkip("Opt in only for the authorized installed-app check.")
+        }
+        XCUIApplication(bundleIdentifier: bundle).terminate()
+        let app = XCUIApplication(url: URL(fileURLWithPath: path))
+        app.launchArguments = []
+        app.launch()
+        sendSettingsShortcut(to: app)
+        let general = app.windows["General"]
+        XCTAssertTrue(general.waitForExistence(timeout: 5))
+        let connected = general.staticTexts.matching(NSPredicate(format: "label CONTAINS %@ OR value CONTAINS %@", "Connected to Codex.", "Connected to Codex.")).firstMatch
+        XCTAssertTrue(connected.waitForExistence(timeout: 30))
+        XCTAssertFalse(general.buttons["Check for Updates…"].exists)
+        let shot = XCTAttachment(screenshot: general.screenshot())
+        shot.name = "Installed sandbox connection — \(bundle)"
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
+
+    @MainActor
     func testMenuBarAgentLaunchesWithoutAWindow() throws {
         let app = XCUIApplication()
         app.launch()
@@ -124,22 +248,22 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertFalse(app.menuItems["Refresh"].exists)
 
         statusItem.menuItems["Open Dashboard…"].click()
-        let dashboard = app.windows["CodexGauge"]
+        let dashboard = app.windows["codexgauge.dashboardWindow"]
         XCTAssertTrue(dashboard.waitForExistence(timeout: 3), "Dashboard should open in a full native window")
         XCTAssertFalse(dashboard.buttons["Refresh allowances"].exists)
         capture("02-dashboard-overview")
 
-        dashboard.staticTexts["Tasks"].firstMatch.click()
+        dashboard.buttons["Tasks"].firstMatch.click()
         XCTAssertTrue(dashboard.staticTexts["Live tasks"].waitForExistence(timeout: 3))
         capture("03-dashboard-conversations")
 
-        dashboard.staticTexts["Activity"].firstMatch.click()
+        dashboard.buttons["Activity"].firstMatch.click()
         XCTAssertTrue(dashboard.staticTexts["Token activity"].waitForExistence(timeout: 3))
         let rangePicker = dashboard.descendants(matching: .any)["activity-range-picker"].firstMatch
         XCTAssertTrue(rangePicker.waitForExistence(timeout: 2))
         let pickerSize = rangePicker.frame.size
-        for range in ["Today", "30 Days", "7 Days", "1 Year", "All"] {
-            let control = dashboard.descendants(matching: .any)[range].firstMatch
+        for range in ["Today", "30 days", "7 days", "1 year", "All"] {
+            let control = rangePicker.descendants(matching: .any)[range].firstMatch
             XCTAssertTrue(control.waitForExistence(timeout: 2))
             control.click()
             Thread.sleep(forTimeInterval: 0.25)
@@ -156,8 +280,8 @@ final class CodexGaugeUITests: XCTestCase {
                 capture("04b-dashboard-activity-week")
             }
         }
-        dashboard.staticTexts["Tasks"].firstMatch.click()
-        dashboard.staticTexts["Activity"].firstMatch.click()
+        dashboard.buttons["Tasks"].firstMatch.click()
+        dashboard.buttons["Activity"].firstMatch.click()
         XCTAssertTrue(rangePicker.waitForExistence(timeout: 2))
         XCTAssertEqual(rangePicker.frame.width, pickerSize.width, accuracy: 1)
         XCTAssertEqual(rangePicker.frame.height, pickerSize.height, accuracy: 1)
@@ -426,6 +550,41 @@ final class CodexGaugeUITests: XCTestCase {
     }
 
     @MainActor
+    func testDevicesSettingsAndWrappedPairingSheet() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-uiTestDemo", "-companionDevicesDemo"]
+        app.launch(); sendSettingsShortcut(to: app)
+        let general = app.windows["General"]
+        XCTAssertTrue(general.waitForExistence(timeout: 5))
+        XCTAssertFalse(general.buttons["Pair iPhone…"].exists)
+        general.buttons["Devices"].click()
+        let devices = app.windows["Devices"]
+        XCTAssertTrue(devices.waitForExistence(timeout: 5))
+        XCTAssertTrue(devices.staticTexts["Fixture iPhone"].exists)
+        XCTAssertTrue(devices.buttons["Remove Fixture iPhone"].exists)
+        XCTAssertFalse(devices.buttons["Copy viewing link"].exists)
+        XCTAssertFalse(devices.staticTexts["Connection"].exists)
+        XCTAssertFalse(devices.disclosureTriangles["Advanced"].exists)
+        func save(_ name: String) {
+            let shot = XCTAttachment(screenshot: devices.screenshot())
+            shot.name = name; shot.lifetime = .keepAlways; add(shot)
+        }
+        save("Devices — primary pairing and removable devices")
+        devices.buttons["companion.pairPhone"].click()
+        let sheet = devices.sheets.firstMatch
+        XCTAssertTrue(sheet.waitForExistence(timeout: 5))
+        let instructions = sheet.staticTexts["companion.pairInstructions"]
+        XCTAssertTrue(instructions.exists)
+        XCTAssertGreaterThan(instructions.frame.height, 28, "Instructions must wrap to their full height")
+        XCTAssertTrue(sheet.buttons["Done"].isHittable)
+        let qr = XCTAttachment(screenshot: sheet.screenshot())
+        qr.name = "Pair iPhone — complete sheet including actions"
+        qr.lifetime = .keepAlways; add(qr)
+        sheet.buttons["Done"].click()
+        XCTAssertFalse(sheet.exists)
+    }
+
+    @MainActor
     private func sendSettingsShortcut(to app: XCUIApplication) {
         // Menu-bar-only apps do not always own keyboard focus immediately after
         // XCTest observes their status item. Make the shortcut deterministic
@@ -560,49 +719,148 @@ final class CodexGaugeUITests: XCTestCase {
     }
 
     @MainActor func testAccountBalancesAndCalendarRangesInActualMacWindows() throws {
+        for appearance in ["Light", "Dark"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-uiTestDemo", "-uiTestNarrowDashboard", "-AppleInterfaceStyle", appearance]
+            app.launch()
+            defer { app.terminate() }
+            func shot(_ name: String, _ element: XCUIElement) {
+                let image = XCTAttachment(screenshot: element.screenshot())
+                image.name = appearance + " — " + name; image.lifetime = .keepAlways; add(image)
+                let tree = XCTAttachment(string: element.debugDescription)
+                tree.name = appearance + " — " + name + " hierarchy"; tree.lifetime = .keepAlways; add(tree)
+            }
+            func checkCard(_ surface: XCUIElement) {
+                let card = surface.descendants(matching: .any)["account-allowance-card"].firstMatch
+                XCTAssertTrue(card.waitForExistence(timeout: 5))
+                XCTAssertEqual(surface.descendants(matching: .any).matching(identifier: "account-allowance-card").count, 1)
+                XCTAssertFalse(surface.staticTexts["Account balances"].exists)
+                let identity = card.descendants(matching: .any)["account-identity"].firstMatch
+                let balances = card.descendants(matching: .any)["account-balances"].firstMatch
+                XCTAssertTrue(identity.exists)
+                XCTAssertTrue(balances.exists)
+                XCTAssertLessThanOrEqual(identity.frame.maxY, balances.frame.minY)
+                XCTAssertTrue(card.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Limit resets: 2")).firstMatch.exists)
+                XCTAssertTrue(card.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Credits available: 12.5")).firstMatch.exists)
+                XCTAssertGreaterThanOrEqual(balances.frame.minX, card.frame.minX)
+                XCTAssertLessThanOrEqual(balances.frame.maxX, card.frame.maxX)
+            }
+            let status = app.statusItems["codexgauge.statusItem"]
+            XCTAssertTrue(status.waitForExistence(timeout: 5)); status.click()
+            let panel = app.descendants(matching: .any)["gauge-panel"].firstMatch
+            XCTAssertTrue(panel.waitForExistence(timeout: 5))
+            shot("menu account card", panel); checkCard(panel)
+            status.rightClick(); app.menuItems["Open Dashboard…"].click()
+            let dashboard = app.windows["codexgauge.dashboardWindow"]
+            XCTAssertTrue(dashboard.waitForExistence(timeout: 5)); app.activate()
+            XCTAssertEqual(dashboard.frame.width, 780, accuracy: 2)
+            XCTAssertEqual(dashboard.frame.height, 640, accuracy: 2)
+            for destination in ["Overview", "Limits"] {
+                dashboard.buttons[destination].firstMatch.click()
+                shot("narrow " + destination, dashboard); checkCard(dashboard)
+            }
+            dashboard.buttons["Activity"].firstMatch.click()
+            let picker = dashboard.descendants(matching: .any)["activity-range-picker"].firstMatch
+            XCTAssertTrue(picker.exists)
+            for title in ["Today", "7 days", "30 days", "90 days", "1 year", "All"] {
+                let item = picker.descendants(matching: .any)[title].firstMatch
+                XCTAssertTrue(item.exists); XCTAssertTrue(item.isHittable); item.click()
+                shot("Activity " + title, dashboard)
+            }
+            app.terminate()
+        }
+    }
+
+    @MainActor func testDashboardNativeChromeAndSinglePointInLightMode() {
         let app = XCUIApplication()
-        app.launchArguments = ["-uiTestDemo", "-uiTestNarrowDashboard"]
+        app.launchArguments = ["-uiTestDemo", "-uiTestSingleActivity", "-showDashboard", "-performanceDashboardActivity", "-AppleInterfaceStyle", "Light"]
         app.launch()
         defer { app.terminate() }
-        let status = app.statusItems["codexgauge.statusItem"]
-        XCTAssertTrue(status.waitForExistence(timeout: 5)); status.click()
-        let panel = app.descendants(matching: .any)["gauge-panel"].firstMatch
-        XCTAssertTrue(panel.waitForExistence(timeout: 5))
-        let tree = XCTAttachment(string: app.debugDescription); tree.name = "Native Mac review hierarchy"; tree.lifetime = .keepAlways; add(tree)
-        let before = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); before.name = "Mac native initial popover"; before.lifetime = .keepAlways; add(before)
-        XCTAssertTrue(panel.staticTexts["Account balances"].exists)
-        func shot(_ name: String) {
-            let item = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-            item.name = name; item.lifetime = .keepAlways; add(item)
-        }
-        shot("Mac native popover — separate account balances")
-        let popover = XCTAttachment(screenshot: panel.screenshot()); popover.name = "Mac native popover detail"; popover.lifetime = .keepAlways; add(popover)
-        status.rightClick(); app.menuItems["Open Dashboard…"].click()
-        let dashboard = app.windows["CodexGauge"]
+        let dashboard = app.windows["codexgauge.dashboardWindow"]
         XCTAssertTrue(dashboard.waitForExistence(timeout: 5))
-        dashboard.staticTexts["Limits"].firstMatch.click()
-        XCTAssertTrue(dashboard.staticTexts["Account balances"].exists)
-        shot("Mac native Limits — balances outside weekly allowance")
-        let limits = XCTAttachment(screenshot: dashboard.screenshot()); limits.name = "Mac native Limits detail"; limits.lifetime = .keepAlways; add(limits)
-        // The DEBUG fixture sets the real NSWindow frame; assert the compositor's
-        // measured size rather than assuming a corner drag took effect.
-        XCTAssertEqual(dashboard.frame.width, 780, accuracy: 2)
-        XCTAssertEqual(dashboard.frame.height, 640, accuracy: 2)
-        shot("Mac narrow Limits — balances fit")
-        let narrow = XCTAttachment(screenshot: dashboard.screenshot()); narrow.name = "Mac narrow Limits detail"; narrow.lifetime = .keepAlways; add(narrow)
-        let frame = XCTAttachment(string: "Actual native dashboard frame: \(dashboard.frame)"); frame.name = "Native dashboard size"; frame.lifetime = .keepAlways; add(frame)
-        dashboard.staticTexts["Activity"].firstMatch.click()
-        let picker = dashboard.descendants(matching: .any)["activity-range-picker"].firstMatch
-        XCTAssertTrue(picker.exists)
-        for title in ["Today", "7 days", "30 days", "90 days", "1 year", "All"] {
-            let item = picker.descendants(matching: .any)[title].firstMatch
-            XCTAssertTrue(item.exists); XCTAssertTrue(item.isHittable); item.click()
+        app.activate()
+        for identifier in ["_XCUI:CloseWindow", "_XCUI:ZoomWindow", "_XCUI:MinimizeWindow"] {
+            XCTAssertTrue(dashboard.buttons[identifier].isHittable)
         }
-        shot("Mac narrow Activity — all six ranges")
-        let activity = XCTAttachment(screenshot: dashboard.screenshot()); activity.name = "Mac narrow Activity detail"; activity.lifetime = .keepAlways; add(activity)
-        dashboard.staticTexts["Limits"].firstMatch.click()
-        let credits = dashboard.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Credits available: 12.50")).firstMatch
-        XCTAssertTrue(credits.exists)
+        let picker = dashboard.descendants(matching: .any)["activity-range-picker"].firstMatch
+        picker.descendants(matching: .any)["90 days"].firstMatch.click()
+        let initial = dashboard.frame
+        let titlebar = dashboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.03))
+        titlebar.click(forDuration: 0.2, thenDragTo: titlebar.withOffset(CGVector(dx: 60, dy: 40)))
+        XCTAssertEqual(dashboard.frame.minX, initial.minX + 60, accuracy: 3)
+        XCTAssertEqual(dashboard.frame.minY, initial.minY + 40, accuracy: 3)
+        let beforeResize = dashboard.frame
+        let corner = dashboard.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1)).withOffset(CGVector(dx: -2, dy: -2))
+        corner.click(forDuration: 0.2, thenDragTo: corner.withOffset(CGVector(dx: -60, dy: -30)))
+        XCTAssertLessThan(dashboard.frame.width, beforeResize.width - 30)
+        XCTAssertLessThan(dashboard.frame.height, beforeResize.height - 10)
+        let image = XCTAttachment(screenshot: dashboard.screenshot())
+        image.name = "Light native chrome — moved resized single observation line"
+        image.lifetime = .keepAlways; add(image)
+        dashboard.buttons["Limits"].click()
+        app.typeKey(.downArrow, modifierFlags: [])
+        XCTAssertTrue(app.windows["Tasks"].exists)
+        dashboard.buttons["_XCUI:CloseWindow"].click()
+        XCTAssertFalse(dashboard.exists)
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.windows["General"].waitForExistence(timeout: 3))
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertFalse(app.windows["General"].exists)
+    }
+
+    @MainActor func testAlreadyOpenInstalledBetaDashboard() throws {
+        guard ProcessInfo.processInfo.environment["CG_SANDBOX_REAL_ACCOUNT_CHECK"] == "1" else {
+            throw XCTSkip("Opt in for the authorized installed dashboard check.")
+        }
+        let app = XCUIApplication(bundleIdentifier: "com.northwolflabs.CodexGauge.beta")
+        XCTAssertTrue(app.state == .runningBackground || app.state == .runningForeground)
+        let dashboard = app.windows["codexgauge.dashboardWindow"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 5), "Open the installed dashboard before this read-only check.")
+        app.activate()
+        for section in ["Overview", "Tasks", "Limits", "Activity"] {
+            dashboard.buttons[section].firstMatch.click()
+            if section == "Tasks" {
+                let title = "Refine account card"
+                let rows = dashboard.staticTexts.matching(NSPredicate(
+                    format: "identifier == %@ OR label == %@ OR value == %@", title, title, title))
+                XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 10))
+                XCTAssertEqual(rows.count, 1)
+            } else if section == "Limits" {
+                XCTAssertTrue(dashboard.descendants(matching: .any)["account-allowance-card"].firstMatch.exists)
+            } else if section == "Activity" {
+                XCTAssertTrue(dashboard.descendants(matching: .any)["activity-range-picker"].firstMatch.exists)
+            }
+            let image = XCTAttachment(screenshot: dashboard.screenshot())
+            image.name = "Already open installed Beta — " + section
+            image.lifetime = .keepAlways; add(image)
+            let tree = XCTAttachment(string: dashboard.debugDescription)
+            tree.name = "Already open installed Beta hierarchy — " + section
+            tree.lifetime = .keepAlways; add(tree)
+        }
+        dashboard.buttons["Tasks"].firstMatch.click()
+        // Leave the user's installed dashboard open, without relaunching the app.
+    }
+
+    @MainActor func testInstalledBetaCurrentChatAppearsOnce() throws {
+        let app = XCUIApplication(bundleIdentifier: "com.northwolflabs.CodexGauge.beta")
+        XCTAssertTrue(app.state == .runningBackground || app.state == .runningForeground)
+        app.activate()
+        let status = app.statusItems["codexgauge.statusItem"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        status.rightClick(); app.menuItems["Open Dashboard…"].click()
+        let dashboard = app.windows["codexgauge.dashboardWindow"]
+        XCTAssertTrue(dashboard.waitForExistence(timeout: 5))
+        defer { if dashboard.exists { dashboard.buttons[XCUIIdentifierCloseWindow].click() } }
+        dashboard.buttons["Tasks"].firstMatch.click()
+        let title = "Refine account card"
+        XCTAssertTrue(dashboard.staticTexts[title].firstMatch.waitForExistence(timeout: 10))
+        let shot = XCTAttachment(screenshot: dashboard.screenshot())
+        shot.name = "Duplicate fix installed Mac Tasks"; shot.lifetime = .keepAlways; add(shot)
+        let tree = XCTAttachment(string: dashboard.debugDescription)
+        tree.name = "Duplicate fix installed Mac Tasks hierarchy"; tree.lifetime = .keepAlways; add(tree)
+        // SwiftUI macOS Text can expose the displayed title as its value.
+        XCTAssertEqual(dashboard.staticTexts.matching(NSPredicate(
+            format: "identifier == %@ OR label == %@ OR value == %@", title, title, title)).count, 1)
     }
 
     @MainActor func testInstalledBetaReadOnlyAccountLayoutCapture() throws {
@@ -613,26 +871,30 @@ final class CodexGaugeUITests: XCTestCase {
         XCTAssertTrue(status.waitForExistence(timeout: 5)); status.click()
         let panel = app.descendants(matching: .any)["gauge-panel"].firstMatch
         XCTAssertTrue(panel.waitForExistence(timeout: 5))
-        XCTAssertTrue(panel.staticTexts["Account balances"].exists)
-        let popover = XCTAttachment(screenshot: panel.screenshot()); popover.name = "Installed beta10 actual popover"; popover.lifetime = .keepAlways; add(popover)
+        XCTAssertTrue(panel.descendants(matching: .any)["account-allowance-card"].firstMatch.exists)
+        let popover = XCTAttachment(screenshot: panel.screenshot()); popover.name = "Installed beta actual popover"; popover.lifetime = .keepAlways; add(popover)
         status.rightClick(); app.menuItems["Open Dashboard…"].click()
-        let dashboard = app.windows["CodexGauge Beta"]
+        let dashboard = app.windows["codexgauge.dashboardWindow"]
         XCTAssertTrue(dashboard.waitForExistence(timeout: 5))
         defer { if dashboard.exists { dashboard.buttons[XCUIIdentifierCloseWindow].click() } }
-        dashboard.staticTexts["Limits"].firstMatch.click()
-        XCTAssertTrue(dashboard.staticTexts["Account balances"].exists)
-        let limits = XCTAttachment(screenshot: dashboard.screenshot()); limits.name = "Installed beta10 actual Limits"; limits.lifetime = .keepAlways; add(limits)
-        dashboard.staticTexts["Activity"].firstMatch.click()
+        dashboard.buttons["Limits"].firstMatch.click()
+        XCTAssertTrue(dashboard.descendants(matching: .any)["account-allowance-card"].firstMatch.exists)
+        let limits = XCTAttachment(screenshot: dashboard.screenshot()); limits.name = "Installed beta actual Limits"; limits.lifetime = .keepAlways; add(limits)
+        dashboard.buttons["Activity"].firstMatch.click()
         XCTAssertTrue(dashboard.descendants(matching: .any)["activity-range-picker"].firstMatch.exists)
-        let activity = XCTAttachment(screenshot: dashboard.screenshot()); activity.name = "Installed beta10 actual Activity"; activity.lifetime = .keepAlways; add(activity)
+        let activity = XCTAttachment(screenshot: dashboard.screenshot()); activity.name = "Installed beta actual Activity"; activity.lifetime = .keepAlways; add(activity)
         XCTAssertTrue(app.state == .runningForeground)
     }
 
     @MainActor
     private func capture(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let app = XCUIApplication()
+        let panel = app.descendants(matching: .any)["gauge-panel"].firstMatch
+        let window = app.windows.firstMatch
+        let screenshot = panel.exists ? panel.screenshot() : window.exists ? window.screenshot() : app.screenshot()
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
-        attachment.lifetime = .deleteOnSuccess
+        attachment.lifetime = .keepAlways
         add(attachment)
     }
 }

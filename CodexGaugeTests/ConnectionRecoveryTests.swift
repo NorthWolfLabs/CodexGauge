@@ -36,13 +36,15 @@ struct ConnectionRecoveryTests {
         #expect(await rejecting.locate(override: nil) == nil)
     }
 
-    @MainActor @Test func sessionMonitoringStartsEvenWhenAccountHelperIsMissing() async {
+    @MainActor @Test func sessionMonitoringStartsEvenWhenAccountHelperIsMissing() async throws {
         let suite = "ConnectionRecoveryTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
         let sessions = IndependentSessions()
+        let access = ScopedCodexAccess(defaults: defaults, required: true, backend: FakeBookmarks())
+        try access.select(URL(fileURLWithPath: "/fixture/data"), for: .directory)
         let state = AppState(settings: SettingsStore(defaults: defaults), locator: MissingHelper(),
-                             startImmediately: false, sessionProvider: sessions)
+                             startImmediately: false, sessionProvider: sessions, codexAccess: access)
         await state.reconnect()
         for _ in 0..<20 where !state.hasLoadedConversations {
             try? await Task.sleep(for: .milliseconds(10))

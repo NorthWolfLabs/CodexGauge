@@ -4,7 +4,13 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ## [Unreleased]
 
-- Add native ActivityKit Lock Screen and Dynamic Island task summaries, with per-Mac APNs start/update/end delivery, waiting-task priority, stale states, dismissal handling, and access revocation. Keep delivery ordering separate from Mac observation age and request immediate dismissal when access is removed.
+- Refine account and allowance cards, task and activity headers, and current-turn runtime recovery on Mac and iPhone. Deduplicate task rows and restore the Overview working indicator.
+- Move Mac pairing into Devices settings with a wrapped QR sheet and individual device removal. Link from iPhone by scanning or pasting without exposing the viewing URL.
+- Deliver Live Activity updates through publisher-driven push and durable delivery queues. Recover missing cards, end inactive cards immediately, and let the compact task selector cycle between running tasks.
+- Format available credits with at most four fractional digits and no trailing zeros. Use line charts for longer mobile activity ranges, including 1 Year and All.
+- Enable App Sandbox on the main Mac and beta targets, retain scoped folder/helper access, add migration and privacy manifests, and provide local Mac App Store archive/export checks. Remove the retired external updater and its rehearsal tooling.
+
+- Add native ActivityKit Lock Screen and Dynamic Island task summaries, with per-Mac APNs start/update/end delivery, waiting-task priority, dismissal handling, and access revocation. Keep delivery ordering separate from Mac observation age and request immediate dismissal when access is removed.
 - Add selectable 7/30/90-day mobile token charts and five-minute task throughput charts with explicit gaps after reconnecting.
 - Retain tapped chart-day selection, select the correct calendar day after noon, and show isolated throughput observations after reconnection.
 - Fix a crash when tapping a real task notification by completing its response delegate on the main actor; verify warm, cold, and repeated notification navigation.
@@ -21,7 +27,6 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 - Add a separate full-app sandbox preview with native folder/helper selection, persisted security-scoped access, and no Sparkle dependency. Verify restored real-folder access, fresh allowances and live task-data changes after relaunch; retain grants until readers and helper processes finish using them. Controlled sandbox checks also cover task input, approval, completion, and recovery after restarting the monitor.
 - Add a read-only iPhone companion with linked-Mac live usage/task views, Cloudflare relay, APNs alerts, and Home Screen/Lock Screen widgets. Verify real Mac linking and widget layouts on iPhone 17 Pro; retain the last confirmed usage across pending resets.
-- Integrate Sparkle for future signed Mac updates, with explicit development/beta isolation and opt-in automatic checks. A disposable HTTPS signed-update rehearsal passed, including rejection and saved-state preservation; production feed/signing-key setup remains release preparation work.
 - Add an isolated Mac sandbox compatibility probe. Installed-helper launch and app-server initialization work with a selected writable fixture; bookmark restoration and filesystem events also work after relaunch. Fix the file reader to honor a scoped directory grant without opening its ancestors. A user-approved check also passed saved sign-in and authenticated allowance access; Store integration and review eligibility remain under investigation.
 
 - Remove the experimental Slack and ntfy integrations, including setup, remote routing, counters, command handling, and Slack artwork. Preserve Apple alert choices and clear retired local integration credentials and queues on launch.

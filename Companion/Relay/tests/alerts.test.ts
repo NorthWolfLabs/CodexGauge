@@ -94,6 +94,26 @@ test('APNs separates permanent registration/configuration errors from retryable 
   } finally { globalThis.fetch = original; }
 });
 
+test('APNs always clears its duration-extending timeout after success and transport failure', async t => {
+  const keys = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const env = { APNS_PRIVATE_KEY: Buffer.from(await crypto.subtle.exportKey('pkcs8', keys.privateKey)).toString('base64'),
+    APNS_TEAM_ID: 'TESTTEAM', APNS_KEY_ID: 'TIMERKEY', APNS_BUNDLE_ID: 'example.test' } as Env;
+  const originalSet = globalThis.setTimeout, originalClear = globalThis.clearTimeout;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  t.mock.method(globalThis, 'setTimeout', (handler: () => void, milliseconds: number) => {
+    const timer = originalSet(handler, milliseconds); timers.add(timer); return timer;
+  });
+  t.mock.method(globalThis, 'clearTimeout', (timer: ReturnType<typeof setTimeout>) => { timers.delete(timer); originalClear(timer); });
+  const device = { token: 'f'.repeat(64), environment: 'sandbox' as const, kinds: [] };
+  const event = { id: 'timer', kind: 'completed' as const, title: 'Test', body: 'Synthetic', at: 1000, macID: 'test' };
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(null, { status: 200 }));
+  assert.equal(await sendPush(env, device, event), 'accepted');
+  assert.equal(timers.size, 0);
+  fetch.mock.mockImplementation(async () => { throw new Error('Synthetic transport failure'); });
+  await assert.rejects(sendPush(env, device, event), /Synthetic transport failure/);
+  assert.equal(timers.size, 0);
+});
+
 test('two Macs seeing the same banked reset produce one account alert and retain their own task alerts', () => {
   const first = initial(), second = { ...initial(), id: '44444444-4444-4444-8444-444444444444' };
   const updatedFirst = structuredClone(first); updatedFirst.observedAt += 1;

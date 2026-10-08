@@ -9,18 +9,32 @@
   "workers_dev": true,
   "preview_urls": false,
   "ratelimits": [
-    { "name": "CREATE_LIMIT", "namespace_id": "3092901", "simple": { "limit": 20, "period": 60 } },
-    { "name": "REQUEST_LIMIT", "namespace_id": "3092902", "simple": { "limit": 180, "period": 60 } }
+    {
+      "name": "CREATE_LIMIT",
+      "namespace_id": "3092901",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    },
+    {
+      "name": "REQUEST_LIMIT",
+      "namespace_id": "3092902",
+      "simple": {
+        "limit": 180,
+        "period": 60
+      }
+    }
   ],
   "durable_objects": {
     "bindings": [
       {
         "name": "MACS",
-        "class_name": "MacFeed"
+        "class_name": "MacFeedV2"
       },
       {
         "name": "RECEIVERS",
-        "class_name": "PushReceiver"
+        "class_name": "PushReceiverV2"
       }
     ]
   },
@@ -36,10 +50,22 @@
       "new_sqlite_classes": [
         "PushReceiver"
       ]
+    },
+    {
+      "tag": "v3-publisher-driven",
+      "deleted_classes": [
+        "MacFeed",
+        "PushReceiver"
+      ],
+      "new_sqlite_classes": [
+        "MacFeedV2",
+        "PushReceiverV2"
+      ]
     }
   ],
   "observability": {
-    "enabled": false
+    "enabled": true,
+    "head_sampling_rate": 0.05
   },
   "vars": {
     "APNS_KEY_ID": "G6J2XSQR62",
@@ -50,5 +76,12 @@
     "required": [
       "APNS_PRIVATE_KEY"
     ]
-  }
+  },
+  "services": [
+    {
+      "binding": "DELIVERY",
+      "service": "codexgauge-relay-dev",
+      "entrypoint": "PushDelivery"
+    }
+  ]
 }

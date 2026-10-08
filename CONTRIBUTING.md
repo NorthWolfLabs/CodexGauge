@@ -29,6 +29,8 @@ xcodebuild test -project CodexGauge.xcodeproj -scheme CodexGauge \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
 ```
 
+Repository checks use [uv](https://docs.astral.sh/uv/) for Python. Install it, stage the intended changes, then run `./Scripts/check-repository.sh`. The index check rejects build products, local capture/telemetry evidence, oversized files and likely private credentials. Keep review summaries in top-level `Review/*.md`; retain raw evidence locally.
+
 Apple-silicon contributors should additionally run the `x86_64` tests through Rosetta before changing architecture-sensitive code. The first local UI-test run may ask for Accessibility/Automation permission. Release artifacts use the exact recorded Xcode; compatibility jobs include native Apple-silicon and Intel runners.
 
 ## Pull requests

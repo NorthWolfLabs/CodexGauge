@@ -9,7 +9,9 @@ required=(
   CODE_OF_CONDUCT.md SUPPORT.md PRIVACY.md .xcode-version
   Performance/Budgets.json Performance/README.md
   Scripts/release.sh Scripts/check-toolchain.sh Scripts/performance-check.sh
-  Scripts/performance-probe.swift
+  Scripts/performance-probe.swift Scripts/package-store.sh Scripts/check-mac-package.py Scripts/check-store-export.py
+  Scripts/write-container-migration.sh Scripts/check-tracked-files.py Distribution/Store.entitlements
+  Distribution/AppStoreExportOptions.plist CodexGauge/PrivacyInfo.xcprivacy
   CodexGauge/AppIcon.icon/icon.json
   CodexGauge/AppIcon.icon/Assets/01-dial.svg
   CodexGauge/AppIcon.icon/Assets/02-track.svg
@@ -23,6 +25,7 @@ done
 
 tracked_artifacts="$(git ls-files | grep -E '(^|/)(DerivedData|TestArtifacts|xcuserdata)/|\.(xcresult|xcarchive|dmg|p12|p8|mobileprovision|keychain-db|profraw|profdata)$' || true)"
 [[ -z "$tracked_artifacts" ]] || { print -u2 "Generated or sensitive files are tracked:\n$tracked_artifacts"; exit 1; }
+uv run --no-project python Scripts/check-tracked-files.py
 
 project_file="CodexGauge.xcodeproj/project.pbxproj"
 object_version="$(sed -nE 's/^[[:space:]]*objectVersion = ([0-9]+);/\1/p' "$project_file")"
@@ -51,7 +54,14 @@ if grep -Eq 'ARCHS = arm64;' "$project_file"; then
   exit 1
 fi
 grep -Eq 'ENABLE_HARDENED_RUNTIME = YES;' "$project_file"
-grep -Eq 'ENABLE_APP_SANDBOX = NO;' "$project_file"
+grep -Eq 'ENABLE_APP_SANDBOX = YES;' "$project_file"
+if grep -Eq 'ENABLE_APP_SANDBOX = NO;' "$project_file"; then
+  print -u2 'Every Mac app configuration must enable App Sandbox.'; exit 1
+fi
+grep -Fq 'CODE_SIGN_ENTITLEMENTS = Distribution/Store.entitlements;' "$project_file"
+if grep -Fq 'productName = Sparkle;' "$project_file"; then
+  print -u2 'Mac App Store packages must not link the external updater.'; exit 1
+fi
 grep -Eq 'ENABLE_CODE_COVERAGE = NO;' "$project_file"
 grep -Eq 'INFOPLIST_KEY_LSUIElement = YES;' "$project_file"
 grep -Eq 'public\.app-category\.developer-tools' "$project_file"
@@ -101,5 +111,5 @@ grep -Fq 'macos-15-intel' .github/workflows/release.yml
 grep -Fq 'Universal 2' README.md
 
 jq -e '.sampleSeconds == 300 and .warmupSeconds == 60 and (.scenarios | length == 5)' Performance/Budgets.json >/dev/null
-zsh -n Scripts/release.sh Scripts/check-toolchain.sh Scripts/check-repository.sh Scripts/performance-check.sh
+zsh -n Scripts/release.sh Scripts/check-toolchain.sh Scripts/check-repository.sh Scripts/performance-check.sh Scripts/package-store.sh Scripts/write-container-migration.sh
 print "Repository checks passed."

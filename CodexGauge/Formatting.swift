@@ -52,25 +52,6 @@ enum GaugeFormatting {
         return "Resets in \(duration(date.timeIntervalSince(now)))"
     }
 
-    static func relativeAge(since date: Date, now: Date = .now) -> String {
-        let interval = now.timeIntervalSince(date)
-        guard interval.isFinite else { return "an unknown time ago" }
-        let seconds = max(0, Int(min(interval.rounded(.down), Double(Int.max))))
-        if seconds < 60 {
-            return seconds == 1 ? "1 second ago" : "\(seconds) seconds ago"
-        }
-        if seconds < 3_600 {
-            let minutes = seconds / 60
-            return minutes == 1 ? "1 minute ago" : "\(minutes) minutes ago"
-        }
-        if seconds < 86_400 {
-            let hours = seconds / 3_600
-            return hours == 1 ? "1 hour ago" : "\(hours) hours ago"
-        }
-        let days = seconds / 86_400
-        return days == 1 ? "1 day ago" : "\(days) days ago"
-    }
-
     static func exactDate(_ date: Date) -> String {
         date.formatted(date: .abbreviated, time: .shortened)
     }

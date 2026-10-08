@@ -39,16 +39,23 @@ struct ContentView: View {
         VStack(spacing: 0) {
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    statusSection
                     if state.showsAccountSnapshot {
-                        Divider()
-                        limitsSection
+                        VStack(spacing: 0) {
+                            statusSection
+                            limitsSection
+                        }
+                        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
+                        .padding(12)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("account-allowance-card")
                         Divider()
                         conversationsSection
                         if let activity = state.accountSnapshot?.activity, activity != .empty {
                             Divider()
                             activitySection(activity)
                         }
+                    } else {
+                        statusSection
                     }
                 }
             }
@@ -79,9 +86,6 @@ struct ContentView: View {
                             .font(.headline)
                     }
                     Spacer()
-                    Text(GaugeFormatting.planName(snapshot.plan))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 HStack(spacing: 6) {
@@ -168,7 +172,6 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Limits").font(.headline)
             if let snapshot = state.accountSnapshot {
-                AccountBalancesView(snapshot: snapshot, compact: true)
                 ForEach(snapshot.buckets) { bucket in
                     QuotaBucketView(
                         bucket: bucket,
@@ -179,6 +182,8 @@ struct ContentView: View {
                         onExpansionChanged: onDisclosureExpansionChanged
                     )
                 }
+                AccountIdentityView(snapshot: snapshot)
+                AccountBalancesView(snapshot: snapshot, compact: true)
             } else {
                 ProgressView()
                     .controlSize(.small)
@@ -187,6 +192,7 @@ struct ContentView: View {
             }
         }
         .padding(16)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("limits-section")
     }
 
@@ -605,14 +611,14 @@ private struct LiveConversationRow: View {
         return switch conversation.state {
         case .needsApproval: "Approval needed"
         case .needsInput: "Input needed"
-        default: conversation.activity.title
+        default: conversation.activityTitle
         }
     }
 
     private var phaseSymbol: String {
         switch conversation.state {
         case .needsApproval, .needsInput: conversation.state.systemImage
-        default: conversation.activity.systemImage
+        default: conversation.activitySymbol
         }
     }
 
@@ -869,18 +875,16 @@ struct AccountBalancesView: View {
     var body: some View {
         if snapshot.earnedResetCount != nil || snapshot.buckets.contains(where: { $0.credits != nil }) {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Account balances").font(compact ? .caption.weight(.semibold) : .headline).foregroundStyle(.secondary)
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: compact ? 140 : 180), alignment: .leading)], alignment: .leading, spacing: 12) {
-                    if let count = snapshot.earnedResetCount { balance("Banked resets", count.formatted(), symbol: "arrow.clockwise") }
+                    if let count = snapshot.earnedResetCount { balance("Limit resets", count.formatted(), symbol: "arrow.clockwise") }
                     ForEach(snapshot.buckets) { bucket in
                         if let credits = bucket.credits {
                             balance(snapshot.buckets.filter { $0.credits != nil }.count > 1 ? bucket.name + " credits" : "Credits available", credits.displayBalance, symbol: "creditcard")
                         }
                     }
                 }
-            }.padding(compact ? 12 : 16)
+            }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.quaternary.opacity(compact ? 0.4 : 0.3), in: RoundedRectangle(cornerRadius: 10))
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("account-balances")
         }
@@ -890,5 +894,19 @@ struct AccountBalancesView: View {
             Label(title, systemImage: symbol).font(.caption).foregroundStyle(.secondary)
             Text(value).font(compact ? .title3.weight(.semibold) : .title2.weight(.semibold)).monospacedDigit()
         }.accessibilityElement(children: .ignore).accessibilityLabel("\(title): \(value)")
+    }
+}
+
+struct AccountIdentityView: View {
+    let snapshot: AccountSnapshot
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(snapshot.email ?? "ChatGPT account").font(.subheadline).textSelection(.enabled)
+            Text(GaugeFormatting.planName(snapshot.plan)).font(.caption)
+        }
+        .foregroundStyle(.secondary)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(snapshot.email ?? "ChatGPT account"), \(GaugeFormatting.planName(snapshot.plan))")
+        .accessibilityIdentifier("account-identity")
     }
 }

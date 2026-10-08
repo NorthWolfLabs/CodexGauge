@@ -9,8 +9,8 @@ private final class ReleasedGrants: @unchecked Sendable {
     func contains(_ url: URL) -> Bool { lock.lock(); defer { lock.unlock() }; return urls.contains(url) }
 }
 
-@MainActor private final class FakeBookmarks: CodexBookmarkAccessing {
-    let released = ReleasedGrants()
+@MainActor final class FakeBookmarks: CodexBookmarkAccessing {
+    fileprivate let released = ReleasedGrants()
     var acquisitions: [URL] = []
     var creations: [(URL, Bool)] = []
     var stale = false
@@ -45,6 +45,18 @@ private actor SandboxSessionsSpy: SessionTelemetryProviding {
 }
 
 @MainActor struct ScopedCodexAccessTests {
+    @Test func currentBuildRequiresPersistedUserSelectedAccess() {
+        #expect(ScopedCodexAccess.requiredForBuild)
+    }
+
+    @Test func migrationComparisonUsesPreferenceValuesRatherThanJSONKeyOrder() throws {
+        let first = Data(#"{"working":"off","attention":"apple"}"#.utf8)
+        let reordered = Data(#"{"attention":"apple","working":"off"}"#.utf8)
+        let changed = Data(#"{"attention":"off","working":"off"}"#.utf8)
+        #expect(try SandboxMigrationDigest.preference(first) == SandboxMigrationDigest.preference(reordered))
+        #expect(try SandboxMigrationDigest.preference(first) != SandboxMigrationDigest.preference(changed))
+    }
+
     private func defaults() -> UserDefaults {
         UserDefaults(suiteName: "ScopedAccessTests.\(UUID().uuidString)")!
     }

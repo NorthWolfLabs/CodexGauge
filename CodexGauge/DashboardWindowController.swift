@@ -61,7 +61,13 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
         window.showHelp = onShowHelp
         window.title = AppIdentity.current.displayName
         window.identifier = NSUserInterfaceItemIdentifier("codexgauge.dashboardWindow")
-        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.toolbarStyle = .unified
+        let toolbar = NSToolbar(identifier: "codexgauge.dashboardToolbar")
+        toolbar.showsBaselineSeparator = false
+        window.toolbar = toolbar
         window.tabbingMode = .preferred
         window.isReleasedWhenClosed = true
         window.setContentSize(NSSize(width: 920, height: 650))

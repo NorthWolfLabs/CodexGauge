@@ -39,6 +39,7 @@ app="$output/$product_name.app"
 ditto "$output/DerivedData/Build/Products/Release/$product_name.app" "$app"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == "$bundle_id" ]]
 codesign --verify --deep --strict --verbose=2 "$app"
+uv run python "$project_root/Scripts/check-mac-package.py" "$app" --release --universal
 architectures="$(lipo -archs "$app/Contents/MacOS/CodexGaugeBeta")"
 [[ " $architectures " == *' arm64 '* && " $architectures " == *' x86_64 '* ]]
 codesign -dvv "$app" > "$output/signature.txt" 2>&1
@@ -53,7 +54,10 @@ matches these choices. Warning symbols still appear when needed.
 
 The beta has its own preferences, Notification Center permission, login item,
 snapshot cache, and notification-monitor state. It reads the same
-existing Codex sign-in and local task data. No stable settings are migrated.
+existing Codex sign-in and local task data after you select the Codex folder
+and installed helper in General settings. Access is remembered on this Mac.
+Its prior beta state migrates into its own sandbox container; stable settings
+are not migrated into the beta.
 
 Choose local alerts in Settings > Notifications. Leave the beta running while
 the Mac is awake to catch future task, banked reset, and allowance events.

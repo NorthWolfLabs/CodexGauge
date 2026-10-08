@@ -74,8 +74,11 @@ struct DashboardView: View {
     var body: some View {
         NavigationSplitView {
             List(Section.allCases, selection: $selection) { section in
-                Label(section.title, systemImage: section.systemImage).tag(section)
+                NavigationLink(value: section) {
+                    Label(section.title, systemImage: section.systemImage)
+                }
             }
+            .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 170, ideal: 190)
         } detail: {
             Group {
@@ -86,7 +89,7 @@ struct DashboardView: View {
                 case .activity: activity
                 }
             }
-            .navigationTitle(AppIdentity.current.displayName)
+            .navigationTitle((selection ?? .overview).title)
         }
         .onChange(of: activityRange) { _, _ in selectedActivityDate = nil }
         .frame(minWidth: 780, minHeight: 540)
@@ -95,19 +98,12 @@ struct DashboardView: View {
     private var overview: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                if let snapshot = state.accountSnapshot { accountAllowanceCard(snapshot) }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-                    dashboardMetric("Allowance remaining", state.remainingPercent.map { "\($0)%" } ?? "—", detail: state.accountSnapshot?.limitingWindow?.durationName ?? "Unavailable", symbol: "gauge.with.needle")
                     dashboardMetric("Live tasks", "\(liveConversations.count)", detail: liveConversations.isEmpty ? "None on this Mac" : liveSummary, symbol: "desktopcomputer")
                     dashboardMetric("Last 7 days", GaugeFormatting.tokenCount(recentUsage(days: 7).reduce(0) { $0.addingWithoutOverflow($1.tokens) }), detail: "account activity", symbol: "chart.bar")
                     dashboardMetric("Lifetime", state.accountSnapshot?.activity.lifetimeTokens.map(GaugeFormatting.tokenCount) ?? "—", detail: "account tokens", symbol: "sum")
-                    if let resets = state.accountSnapshot?.earnedResetCount {
-                        dashboardMetric("Banked resets", "\(resets)", detail: "Available", symbol: "arrow.counterclockwise")
-                    }
-                    ForEach(state.accountSnapshot?.buckets ?? []) { bucket in
-                        if let credits = bucket.credits {
-                            dashboardMetric("Credits available", credits.displayBalance, detail: bucket.name, symbol: "creditcard")
-                        }
-                    }
+
                 }
 
                 let recent = recentUsage(days: 14)
@@ -129,46 +125,52 @@ struct DashboardView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 if let snapshot = state.accountSnapshot {
-                    AccountBalancesView(snapshot: snapshot)
-                    ForEach(snapshot.buckets) { bucket in
-                        GroupBox {
-                            VStack(spacing: 16) {
-                                ForEach(bucket.windows) { window in
-                                    VStack(alignment: .leading, spacing: 7) {
-                                        HStack {
-                                            Text(window.durationName).font(.headline)
-                                            Spacer()
-                                            Text("\(window.remainingPercent)% remaining").monospacedDigit().foregroundStyle(.secondary)
-                                        }
-                                        Gauge(value: Double(window.clampedUsedPercent), in: 0...100) { EmptyView() }
-                                            .gaugeStyle(.linearCapacity)
-                                            .tint(limitColor(window.remainingPercent))
-                                            .accessibilityLabel("\(window.durationName) Codex allowance")
-                                            .accessibilityValue(limitAccessibilityValue(window))
-                                        if let reset = window.resetsAt {
-                                            Text("\(GaugeFormatting.resetCountdown(to: reset, now: state.currentDate)) · \(GaugeFormatting.exactDate(reset))")
-                                                .font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.top, 4)
-                        } label: {
-                            HStack {
-                                Label(bucket.name, systemImage: "gauge.with.needle")
-                                Spacer()
-                                if let limiting = bucket.limitingWindow {
-                                    Text("\(limiting.remainingPercent)%").monospacedDigit().foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                    }
+                    accountAllowanceCard(snapshot)
                 } else {
                     ContentUnavailableView("Limits unavailable", systemImage: "gauge.with.needle")
                 }
             }
             .padding(24)
         }
+    }
+
+    private func accountAllowanceCard(_ snapshot: AccountSnapshot) -> some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 18) {
+                ForEach(snapshot.buckets) { bucket in
+                    VStack(alignment: .leading, spacing: 14) {
+                        if snapshot.buckets.count > 1 { Text(bucket.name).font(.headline) }
+                        ForEach(bucket.windows) { window in
+                            VStack(alignment: .leading, spacing: 7) {
+                                HStack(alignment: .firstTextBaseline) {
+                                    Text(window.durationName).font(.headline)
+                                    Spacer()
+                                    Text("\(window.remainingPercent)% remaining").font(.title2.weight(.semibold)).monospacedDigit()
+                                }
+                                Gauge(value: Double(window.clampedUsedPercent), in: 0...100) { EmptyView() }
+                                    .gaugeStyle(.linearCapacity)
+                                    .tint(limitColor(window.remainingPercent))
+                                    .accessibilityLabel("\(window.durationName) Codex allowance")
+                                    .accessibilityValue(limitAccessibilityValue(window))
+                                if let reset = window.resetsAt {
+                                    Text("\(GaugeFormatting.resetCountdown(to: reset, now: state.currentDate)) · \(GaugeFormatting.exactDate(reset))")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+                Divider()
+                AccountIdentityView(snapshot: snapshot)
+                AccountBalancesView(snapshot: snapshot)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        } label: {
+            Label("Allowances", systemImage: "gauge.with.needle")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("account-allowance-card")
     }
 
     private var conversations: some View {
@@ -252,7 +254,7 @@ struct DashboardView: View {
                                 .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 9))
                                 .accessibilityElement(children: .combine)
                             } else {
-                                Text("Select a bar or point to inspect a day.").font(.caption).foregroundStyle(.secondary)
+                                Text("Select a day to inspect its token count.").font(.caption).foregroundStyle(.secondary)
                             }
                         }
 
@@ -385,9 +387,14 @@ struct DashboardView: View {
         let barWidth: MarkDimension = .fixed(usage.count == 1 ? 64 : usage.count <= 7 ? 42 : 12)
         return Chart {
             ForEach(usage) { day in
-                if usage.count > 90 {
+                if activityRange == .quarter || usage.count > 90 {
                     LineMark(x: .value("Day", day.date), y: .value("Tokens", min(day.tokens, maximumTokens)))
-                        .foregroundStyle(.tint).interpolationMethod(.monotone)
+                        .foregroundStyle(.tint).interpolationMethod(activityRange == .quarter ? .linear : .monotone)
+                        .lineStyle(StrokeStyle(lineWidth: 2))
+                    if usage.count == 1 {
+                        PointMark(x: .value("Day", day.date), y: .value("Tokens", min(day.tokens, maximumTokens)))
+                            .foregroundStyle(.tint).accessibilityHidden(true)
+                    }
                 } else if day.tokens > 0 {
                     BarMark(
                         x: .value("Day", day.date),
@@ -645,14 +652,14 @@ struct DashboardView: View {
         return switch conversation.state {
         case .needsApproval: "Approval needed"
         case .needsInput: "Input needed"
-        default: conversation.activity.title
+        default: conversation.activityTitle
         }
     }
 
     private func phaseSymbol(_ conversation: ConversationTelemetry) -> String {
         switch conversation.state {
         case .needsApproval, .needsInput: conversation.state.systemImage
-        default: conversation.activity.systemImage
+        default: conversation.activitySymbol
         }
     }
 

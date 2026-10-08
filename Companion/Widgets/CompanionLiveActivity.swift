@@ -13,17 +13,22 @@ struct CompanionLegacyLiveActivity: Widget {
             Group {
             if #available(iOS 18.0, *) { CompanionLiveFamilyCard(context: context) }
             else {
-                CompanionLiveCard(state: context.state, macName: context.attributes.macName, stale: context.isStale)
+                CompanionLiveCard(state: context.state, macName: context.attributes.macName, stale: context.isStale, macID: context.attributes.macID)
             }
             }
-                .activityBackgroundTint(Color(.secondarySystemBackground))
+                // The Lock Screen host can choose a different appearance from
+                // UIKit. Resolve background and foreground as one palette.
+                .activityBackgroundTint(.black)
+                .activitySystemActionForegroundColor(.white)
                 .widgetURL(context.state.url(macID: context.attributes.macID))
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) { status(context) }
-                DynamicIslandExpandedRegion(.trailing) { Text(context.attributes.macName).font(.caption).lineLimit(1) }
-                DynamicIslandExpandedRegion(.center) { if context.state.hasActiveTasks { Text(context.state.title).font(.headline).lineLimit(2) } }
-                DynamicIslandExpandedRegion(.bottom) { if context.state.hasActiveTasks { counts(context) } }
+                // Side regions beside the camera are too narrow for status or
+                // device names. Keep the expanded card entirely below it.
+                DynamicIslandExpandedRegion(.bottom) {
+                    CompanionLiveCard(state: context.state, macName: context.attributes.macName,
+                                      stale: context.isStale, macID: context.attributes.macID, isIsland: true)
+                }
             } compactLeading: {
                 Image(systemName: symbol(context)).foregroundStyle(context.isStale ? Color.secondary : context.state.attention > 0 ? Color.orange : Color.blue)
             } compactTrailing: {
@@ -39,20 +44,6 @@ struct CompanionLegacyLiveActivity: Widget {
     private func symbol(_ context: ActivityViewContext<CompanionActivityAttributes>) -> String {
         context.isStale ? "clock" : context.state.attention > 0 ? "bubble.left.and.exclamationmark.bubble.right" : context.state.hasActiveTasks ? "waveform.path" : "checkmark"
     }
-    private func status(_ context: ActivityViewContext<CompanionActivityAttributes>) -> some View {
-        Label(context.isStale ? "Last known state" : context.state.statusTitle, systemImage: symbol(context))
-            .font(.caption.weight(.medium)).foregroundStyle(!context.isStale && context.state.attention > 0 ? .orange : .secondary)
-    }
-    private func counts(_ context: ActivityViewContext<CompanionActivityAttributes>) -> some View {
-        HStack(spacing: 12) {
-            if context.state.running > 0 { Label("\(context.state.running) working", systemImage: "waveform.path") }
-            if context.state.attention > 0 { Label("\(context.state.attention) waiting", systemImage: "text.bubble").foregroundStyle(.orange) }
-            Spacer(minLength: 4)
-            if !context.isStale && context.state.running > 0 && context.state.hasRate == true {
-                Text("\(context.state.tokensPerMinute.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)))) tok/min").monospacedDigit()
-            }
-        }.font(.caption).lineLimit(1).minimumScaleFactor(0.8)
-    }
 }
 
 
@@ -62,6 +53,6 @@ private struct CompanionLiveFamilyCard: View {
     let context: ActivityViewContext<CompanionActivityAttributes>
     @Environment(\.activityFamily) private var family
     var body: some View {
-        CompanionLiveCard(state: context.state, macName: context.attributes.macName, stale: context.isStale, isSmall: family == .small)
+        CompanionLiveCard(state: context.state, macName: context.attributes.macName, stale: context.isStale, macID: context.attributes.macID, isSmall: family == .small)
     }
 }

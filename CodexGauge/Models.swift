@@ -201,7 +201,7 @@ struct CreditSnapshot: Codable, Hashable, Sendable {
     let balance: String?
     var displayBalance: String {
         if unlimited { return "Unlimited" }
-        if let balance, !balance.isEmpty { return balance }
+        if let balance, !balance.isEmpty { return CompanionCreditFormatting.balance(balance) }
         return hasCredits ? "Available" : "0"
     }
 }
@@ -387,6 +387,11 @@ struct ConversationTelemetry: Identifiable, Codable, Hashable, Sendable {
     var hasTokenObservation: Bool? = nil
     var contextIncludesAgent: Bool? = nil
     var hasCompleteTokenTotals: Bool? = nil
+
+    /// A live turn remains working between tool/model observations. Unknown
+    /// detail is not a failure of activity collection and must not invent a phase.
+    var activityTitle: String { state == .running && activity == .unknown ? "Working" : activity.title }
+    var activitySymbol: String { state == .running && activity == .unknown ? "waveform" : activity.systemImage }
 
     var isLive: Bool {
         state == .running || state == .needsInput || state == .needsApproval

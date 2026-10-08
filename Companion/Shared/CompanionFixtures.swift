@@ -10,7 +10,7 @@ enum CompanionFixtures {
                 let date = Calendar.current.date(byAdding: .day, value: index - 89, to: now)!
                 let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
                 return .init(id: String(format: "%04d-%02d-%02d", parts.year!, parts.month!, parts.day!), tokens: Int64(85000 + (index * 37123) % 160000))
-            }, credits: [.init(id: "codex", name: "Codex", hasCredits: true, unlimited: false, balance: "250")], metrics: .init(peakDailyTokens: 245000, longestTurnSeconds: 1400, currentStreakDays: 5, longestStreakDays: 12), email: "alex@example.com", accountType: "ChatGPT", historyObservedAt: now)
+            }, credits: [.init(id: "codex", name: "Codex", hasCredits: true, unlimited: false, balance: "250.0000000000")], metrics: .init(peakDailyTokens: 245000, longestTurnSeconds: 1400, currentStreakDays: 5, longestStreakDays: 12), email: "alex@example.com", accountType: "ChatGPT", historyObservedAt: now)
         return [CompanionSnapshot(id: "11111111-1111-4111-8111-111111111111", name: "MacBook Pro", observedAt: now, account: account,
             tasks: [.init(id: "task1", title: "Build the iPhone companion", project: "CodexGauge", state: .running,
                 activity: "Writing a response", tokensPerMinute: 2340, totalTokens: 38200, contextPercent: 32,

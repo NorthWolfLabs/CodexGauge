@@ -76,3 +76,39 @@ struct CompanionTaskHistory {
         }
     }
 }
+
+/// An account-wide observation reported by one device, not device-only usage.
+/// IDs remain stable across renames and email changes.
+struct CompanionActivityScope: Hashable, Identifiable, Sendable {
+    let accountID: String
+    let deviceID: String?
+    var id: Self { self }
+
+    static func choices(_ snapshots: [CompanionSnapshot]) -> [Self] {
+        snapshots.filter { $0.account != nil }.sorted {
+            ($0.account!.id, $0.name, $0.id) < ($1.account!.id, $1.name, $1.id)
+        }.map { .init(accountID: $0.account!.id, deviceID: $0.id) }
+    }
+
+    static func resolve(_ selected: Self?, in choices: [Self]) -> Self? {
+        guard !choices.isEmpty else { return nil }
+        if let selected, choices.contains(selected) { return selected }
+        if selected?.accountID == CompanionMerge.allAccountsID,
+           Set(choices.map(\.accountID)).count > 1 { return selected }
+        return choices.first { $0.accountID == selected?.accountID } ?? choices.first
+    }
+
+    func label(in snapshots: [CompanionSnapshot]) -> String {
+        guard let mac = snapshots.first(where: { $0.id == deviceID && $0.account?.id == accountID }), let account = mac.account else { return "All accounts" }
+        let collisions = snapshots.filter { $0.name == mac.name && $0.account?.displayName == account.displayName }
+        let base = "\(account.displayName) · \(mac.name)"
+        return collisions.count > 1 ? base + " · account \(accountID.suffix(6)) · device \(mac.id.suffix(6))" : base
+    }
+
+    func account(in snapshots: [CompanionSnapshot]) -> CompanionAccount? {
+        if accountID == CompanionMerge.allAccountsID {
+            return CompanionMerge.combinedActivity(CompanionMerge.accounts(snapshots))
+        }
+        return snapshots.first { $0.id == deviceID && $0.account?.id == accountID }?.account
+    }
+}

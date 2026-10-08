@@ -35,47 +35,32 @@ final class CompanionPushUITests: XCTestCase {
             // Use its normal credential service for a genuine cold launch.
             app.launchArguments = []
             app.launch()
+            app.open(URL(string: "codexgauge://view?server=https%3A%2F%2Fcodexgauge-relay-dev.north-wolf-labs.workers.dev&id=\(id)#\(reader)")!)
+            XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 15))
             app.buttons["Settings"].tap()
-            app.swipeDown()
-            for name in ["Widget Acceptance Mac", "Push Test Mac"] {
-                let old = app.staticTexts[name].firstMatch
-                while old.exists {
-                    old.swipeLeft(); app.buttons["Remove"].firstMatch.tap()
-                    let removed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: old)
-                    XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 15), .completed)
-                }
-            }
-            app.buttons["Link a Mac"].firstMatch.tap()
-            let field = app.textFields["companion.viewingLink"]
-            XCTAssertTrue(field.waitForExistence(timeout: 5))
-            field.tap()
-            field.typeText("codexgauge://view?server=https%3A%2F%2Fcodexgauge-relay-dev.north-wolf-labs.workers.dev&id=\(id)#\(reader)")
-            app.buttons["Link Mac"].tap()
-            app.buttons["Settings"].tap()
-            let send = app.buttons["Send test notification"]
-            if !send.isHittable { app.swipeUp() }
-            XCTAssertTrue(send.waitForExistence(timeout: 5))
-            send.tap()
-            let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-            let allow = springboard.alerts.buttons["Allow"]
-            if allow.waitForExistence(timeout: 5) { allow.tap() }
-            let result = app.staticTexts["companion.pushTestResult"]
-            XCTAssertTrue(result.waitForExistence(timeout: 30))
-            XCTAssertEqual(result.label, "Apple accepted the test. Check for its notification.")
-            let banner = springboard.staticTexts["Your CodexGauge phone alerts are connected."]
-            XCTAssertTrue(banner.waitForExistence(timeout: 15), "No iPhone test banner observed. This assertion cannot observe delivery to a paired Apple Watch.")
-            let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-            shot.name = "Live APNs test notification"; shot.lifetime = .keepAlways; add(shot)
-
-            // Exercise the real publisher → Durable Object alarm → APNs path,
-            // while the app is backgrounded and cannot receive WebSocket updates.
-            // SwiftUI exposes a labeled row and a nested native switch. Tapping
-            // the row's center doesn't necessarily activate the native control.
             let completed = app.switches["Task completed"].switches.firstMatch
-            if !completed.isHittable { app.swipeDown() }
+            if !completed.isHittable { app.swipeUp() }
+            XCTAssertTrue(completed.waitForExistence(timeout: 5))
             let wasEnabled = completed.value as? String == "1"
             if !wasEnabled { completed.tap() }
-            XCTAssertTrue(app.staticTexts["Enabled"].waitForExistence(timeout: 10))
+            let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            if springboard.alerts.buttons["Allow"].waitForExistence(timeout: 3) {
+                springboard.alerts.buttons["Allow"].tap()
+            }
+            app.buttons["Done"].tap()
+            // Current product UI intentionally has no diagnostics button. Check
+            // registration through the publisher API, then send real task events.
+            var registered = false
+            for _ in 0..<30 {
+                var diagnostic = URLRequest(url: base.appending(path: "v1/macs/\(id)/diagnostics"))
+                diagnostic.setValue("Bearer \(publisher)", forHTTPHeaderField: "Authorization")
+                let (data, response) = try await URLSession.shared.data(for: diagnostic)
+                if (response as? HTTPURLResponse)?.statusCode == 200,
+                   let value = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                   let receivers = value["receivers"] as? [[String: Any]], !receivers.isEmpty { registered = true; break }
+                try await Task.sleep(for: .milliseconds(300))
+            }
+            XCTAssertTrue(registered)
             var socketRequest = URLRequest(url: URL(string: "wss://codexgauge-relay-dev.north-wolf-labs.workers.dev/v1/macs/\(id)/stream")!)
             socketRequest.setValue("Bearer \(publisher)", forHTTPHeaderField: "Authorization")
             let socket = URLSession.shared.webSocketTask(with: socketRequest)
@@ -87,8 +72,7 @@ final class CompanionPushUITests: XCTestCase {
                     "tasks": [["id": "push-verification", "title": taskTitle, "project": "CodexGauge tests",
                         "state": state, "activity": activity ?? state, "tokensPerMinute": 0, "totalTokens": 10, "agentCount": 0, "eventAt": now]]]
                 let data = try JSONSerialization.data(withJSONObject: payload)
-                try await socket.send(.string(String(decoding: data, as: UTF8.self)))
-                _ = try await socket.receive()
+                try await publishRelayFixture(data, on: socket, base: base, id: id, publisher: publisher)
             }
             try await publish("running")
             app.tabBars.buttons["Tasks"].tap()

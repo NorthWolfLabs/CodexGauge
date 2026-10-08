@@ -41,8 +41,20 @@ cd Companion/Relay
 vp run typecheck
 # An explicit env file skips Wrangler's automatic .dev.vars/.env discovery.
 print 'APNS_PRIVATE_KEY=' > "$run_dir/test.env"
+# Test traffic intentionally creates many disposable feeds in a few seconds.
+# Keep production abuse limits intact and isolate this fixture configuration.
+vp exec node --input-type=module - "$run_dir/wrangler.json" <<'JS'
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const config = JSON.parse(readFileSync('wrangler.jsonc', 'utf8'));
+config.name += '-check';
+config.main = resolve(config.main);
+config.services.forEach(s => s.service = config.name);
+config.ratelimits.forEach(r => r.simple.limit = 10000);
+writeFileSync(process.argv[2], JSON.stringify(config));
+JS
 vp exec wrangler dev --local --ip 127.0.0.1 --port "$port" \
-  --persist-to "$run_dir/state" --env-file "$run_dir/test.env" > "$run_dir/server.log" 2>&1 &
+  --config "$run_dir/wrangler.json" --persist-to "$run_dir/state" --env-file "$run_dir/test.env" > "$run_dir/server.log" 2>&1 &
 server_pid=$!
 ready=false
 for attempt in {1..100}; do

@@ -35,5 +35,5 @@ export type Snapshot = z.infer<typeof snapshotSchema>;
 export type Scope = 'full' | 'usage';
 export function presentation(snapshot: Snapshot | undefined, scope: Scope) {
   if (!snapshot) return { type: 'waiting' };
-  return { type: 'snapshot', snapshot: { ...snapshot, tasks: scope === 'usage' ? [] : snapshot.tasks } };
+  return { type: 'snapshot', deliveryTimestamp: Math.floor(Date.now() / 1000), snapshot: { ...snapshot, tasks: scope === 'usage' ? [] : snapshot.tasks } };
 }

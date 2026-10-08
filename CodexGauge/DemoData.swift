@@ -43,7 +43,7 @@ enum DemoData {
                 longestRunningTurnSeconds: 0,
                 currentStreakDays: 0,
                 longestStreakDays: 0,
-                dailyUsage: (0..<7).map { offset in
+                dailyUsage: (arguments.contains("-uiTestSingleActivity") ? 6..<7 : 0..<7).map { offset in
                     DailyUsage(date: Calendar.current.date(byAdding: .day, value: offset - 6, to: now)!, tokens: 0)
                 }
             )
@@ -53,7 +53,7 @@ enum DemoData {
                 longestRunningTurnSeconds: 1_804,
                 currentStreakDays: 9,
                 longestStreakDays: 21,
-                dailyUsage: (0..<7).map { offset in
+                dailyUsage: (arguments.contains("-uiTestSingleActivity") ? 6..<7 : 0..<7).map { offset in
                     DailyUsage(date: Calendar.current.date(byAdding: .day, value: offset - 6, to: now)!, tokens: Int64((offset + 2) * 210_000))
                 }
             )

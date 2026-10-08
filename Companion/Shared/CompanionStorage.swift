@@ -55,7 +55,8 @@ final class CompanionNoRedirect: NSObject, URLSessionTaskDelegate, Sendable {
     }
 }
 
-struct CompanionEnvelope: Decodable {
+struct CompanionEnvelope: Decodable, Sendable {
+    var deliveryTimestamp: Double?
     var type: String
     var snapshot: CompanionSnapshot?
 }
@@ -103,6 +104,22 @@ enum CompanionSocket {
 }
 
 enum CompanionRegistrationSync {
+    /// ActivityKit can wake the app briefly to deliver a new token. Recover a
+    /// transient request failure during that wake instead of waiting for a reopen.
+    static func retryLiveRegistration(isolation: isolated (any Actor)? = #isolation,
+                                     sleep: (Duration) async throws -> Void = { try await Task.sleep(for: $0) },
+                                     register: () async throws -> Void) async throws {
+        for attempt in 0..<3 {
+            try Task.checkCancellation()
+            do { try await register(); return }
+            catch CompanionError.rejected { throw CompanionError.rejected }
+            catch is CancellationError { throw CancellationError() }
+            catch {
+                if attempt == 2 { throw error }
+                try await sleep(.seconds(attempt == 0 ? 2 : 4))
+            }
+        }
+    }
     /// Each Mac is independent. A disconnected or revoked link must not prevent
     /// other linked Macs from receiving this device's current alert choices.
     static func failures(links: [CompanionLink], isolation: isolated (any Actor)? = #isolation,

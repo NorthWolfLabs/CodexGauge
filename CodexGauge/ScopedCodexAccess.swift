@@ -44,13 +44,7 @@ struct SystemCodexBookmarkAccess: CodexBookmarkAccessing {
 
 @MainActor @Observable
 final class ScopedCodexAccess {
-    static var requiredForBuild: Bool {
-        #if STORE_BUILD
-        true
-        #else
-        false
-        #endif
-    }
+    static let requiredForBuild = true
 
     enum Resource: String, CaseIterable {
         case directory, helper

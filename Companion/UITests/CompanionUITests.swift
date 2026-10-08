@@ -7,11 +7,11 @@ final class CompanionUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
         for _ in 0..<3 {
-            if app.staticTexts["Credits available, 250"].exists && app.staticTexts["Banked resets"].exists { break }
+            if app.staticTexts["Credits available, 250"].exists && app.staticTexts["Limit resets"].exists { break }
             app.swipeUp()
         }
         XCTAssertTrue(app.staticTexts["Credits available, 250"].exists)
-        XCTAssertTrue(app.staticTexts["Banked resets"].exists)
+        XCTAssertTrue(app.staticTexts["Limit resets"].exists)
         let credits = XCTAttachment(screenshot: app.screenshot())
         credits.name = "Available credits and resets"; credits.lifetime = .keepAlways; add(credits)
         app.tabBars.buttons["Activity"].tap()
@@ -153,7 +153,8 @@ final class CompanionUITests: XCTestCase {
         // placeholder cannot establish that a placed widget reads live data.
         let feed = medium ? try await AcceptanceFeed.create(name: "Widget Acceptance Mac") : nil
         if let feed { try await feed.publish(remainingPercent: 63, creditBalance: "137", bankedResets: 7) }
-        app.launchArguments = medium ? [] : ["-companionDemo"]
+        app.launchArguments = medium ? ["-companionUITest"] : ["-companionDemo"]
+        if let feed { app.launchEnvironment["COMPANION_TEST_CLIPBOARD"] = feed.viewingLink() }
         app.launch()
         if let feed {
             app.buttons["Settings"].tap(); app.swipeDown()
@@ -166,9 +167,7 @@ final class CompanionUITests: XCTestCase {
             }
             addTeardownBlock { try await feed.delete() }
             app.buttons["Link a Mac"].firstMatch.tap()
-            let field = app.textFields["companion.viewingLink"]
-            XCTAssertTrue(field.waitForExistence(timeout: 5)); field.tap(); field.typeText(feed.viewingLink())
-            app.buttons["Link Mac"].tap()
+            app.buttons["companion.pasteLink"].tap()
         }
         app.tabBars.buttons["Overview"].tap()
         XCTAssertTrue(app.staticTexts["83%"].waitForExistence(timeout: 10))
@@ -225,13 +224,10 @@ final class CompanionUITests: XCTestCase {
     @MainActor func testViewingLinkPersistsInKeychainAndReconnectsAfterRelaunch() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-companionUITest", "-companionResetUITestLinks"]
+        app.launchEnvironment["COMPANION_TEST_CLIPBOARD"] = "codexgauge://view?server=http%3A%2F%2F127.0.0.1%3A8789&id=33333333-3333-4333-8333-333333333333#" + String(repeating: "b", count: 64)
         app.launch()
         app.buttons["Link a Mac"].firstMatch.tap()
-        let input = app.textFields["companion.viewingLink"]
-        XCTAssertTrue(input.waitForExistence(timeout: 5))
-        input.tap()
-        input.typeText("codexgauge://view?server=http%3A%2F%2F127.0.0.1%3A8789&id=33333333-3333-4333-8333-333333333333#" + String(repeating: "b", count: 64))
-        app.buttons["Link Mac"].tap()
+        app.buttons["companion.pasteLink"].tap()
         XCTAssertTrue(app.staticTexts["83%"].waitForExistence(timeout: 10))
         app.terminate()
         app.launchArguments = ["-companionUITest"]
@@ -296,7 +292,7 @@ final class CompanionUITests: XCTestCase {
 extension CompanionUITests {
     @MainActor func testRefinedNavigationPairingAndTaskSummary() throws {
         continueAfterFailure = false
-        let app = XCUIApplication(); app.launchArguments = ["-companionDemo"]; app.launch()
+        let app = XCUIApplication(); app.launchArguments = ["-companionDemo"]; app.launchEnvironment["COMPANION_TEST_CLIPBOARD"] = "private-malformed-sentinel"; app.launch()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.tabBars.buttons["Settings"].exists)
         XCTAssertFalse(app.buttons["Link a Mac"].exists)
@@ -308,16 +304,25 @@ extension CompanionUITests {
         capture("Settings — linked Macs and alert choices")
         app.buttons["Link a Mac"].tap()
         XCTAssertTrue(app.navigationBars["Link a Mac"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Paste"].exists)
+        XCTAssertTrue(app.buttons["companion.pasteLink"].exists)
+        XCTAssertFalse(app.textFields["companion.viewingLink"].exists)
+        XCTAssertFalse(app.textViews["companion.viewingLink"].exists)
+        XCTAssertFalse(app.buttons["Link Mac"].exists)
+        app.buttons["companion.pasteLink"].tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "That isn’t a CodexGauge pairing link.")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["private-malformed-sentinel"].exists)
+        capture("Paste gives a helpful error without displaying the URL")
         app.buttons["Scan QR code"].tap()
-        XCTAssertTrue(app.staticTexts["QR scanning isn’t available on this device. Paste the viewing link below."].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["QR scanning isn’t available on this device. Tap Paste instead."].waitForExistence(timeout: 5))
         capture("Pairing — explicit scan action and paste fallback")
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5)); app.buttons["Done"].tap()
         let session = app.cells.containing(NSPredicate(format: "label CONTAINS %@", "Session")).firstMatch
         if session.exists { session.tap() } else { app.staticTexts["Session"].tap() }
         XCTAssertTrue(app.navigationBars["Limits"].waitForExistence(timeout: 5))
-        capture("Allowance opens limits without another tab")
+        app.swipeUp()
+        XCTAssertTrue(app.staticTexts["companion.accountIdentity"].firstMatch.exists)
+        capture("Allowance opens limits with account identity last")
         app.navigationBars.buttons.firstMatch.tap()
         app.tabBars.buttons["Tasks"].tap(); app.staticTexts["Build the iPhone companion"].tap()
         XCTAssertTrue(app.navigationBars["Task"].waitForExistence(timeout: 5))
@@ -335,7 +340,8 @@ extension CompanionUITests {
         capture("Task statistics — expanded recorded token mix")
         app.tabBars.buttons["Activity"].tap()
         XCTAssertTrue(app.staticTexts["Average per observed day"].waitForExistence(timeout: 5))
-        capture("Activity — observed daily usage")
+        XCTAssertTrue(app.descendants(matching: .any)["companion.activityDevice"].firstMatch.exists)
+        capture("Activity — device and account section header")
         app.swipeUp(); capture("Activity — account statistics")
     }
     @MainActor func testRefinedLargeTypeLayouts() throws {
@@ -343,7 +349,11 @@ extension CompanionUITests {
         let app = XCUIApplication(); app.launchArguments = ["-companionDemo", "-companionLargeType"]; app.launch()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
         var shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Large type — allowance layout"; shot.lifetime = .keepAlways; add(shot)
-        app.tabBars.buttons["Tasks"].tap(); app.staticTexts["Build the iPhone companion"].tap()
+        app.tabBars.buttons["Tasks"].tap()
+        XCTAssertTrue(app.navigationBars["Tasks"].waitForExistence(timeout: 5))
+        let task = app.staticTexts["Build the iPhone companion"]
+        for _ in 0..<3 where !task.exists { app.swipeUp() }
+        XCTAssertTrue(task.waitForExistence(timeout: 5)); task.tap()
         XCTAssertTrue(app.navigationBars["Task"].waitForExistence(timeout: 5))
         shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Large type — task summary"; shot.lifetime = .keepAlways; add(shot)
         XCTAssertFalse(app.buttons["Approve"].exists)
@@ -351,20 +361,52 @@ extension CompanionUITests {
 }
 
 extension CompanionUITests {
-    @MainActor func testSharedSmallLiveActivityPreview() throws {
+    @MainActor func testSettingsOmitsLayoutPreview() throws {
         continueAfterFailure = false
         let app = XCUIApplication(); app.launchArguments = ["-companionDemo"]; app.launch()
         XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10)); app.buttons["Settings"].tap()
-        let link = app.buttons["Live Activity layout preview"]
-        for _ in 0..<4 { if link.isHittable { break }; app.swipeUp() }
-        XCTAssertTrue(link.exists); link.tap()
-        XCTAssertTrue(app.navigationBars["Live Activity preview"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Small family"].exists)
-        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "Actual shared ActivityKit renderer — small family and Lock Screen"; shot.lifetime = .keepAlways; add(shot)
-        app.swipeUp()
-        XCTAssertTrue(app.staticTexts["Small family · running"].exists)
-        let running = XCTAttachment(screenshot: app.screenshot()); running.name = "Actual shared ActivityKit renderer — running timer and long names"; running.lifetime = .keepAlways; add(running)
-        app.swipeUp()
-        let stale = XCTAttachment(screenshot: app.screenshot()); stale.name = "Actual shared ActivityKit renderer — stale state"; stale.lifetime = .keepAlways; add(stale)
+        for _ in 0..<4 {
+            XCTAssertFalse(app.buttons["Live Activity layout preview"].exists)
+            app.swipeUp()
+        }
+        XCTAssertTrue(app.switches["Follow active tasks"].exists)
     }
+    @MainActor func testAlertsStayCleanWhenOffAndKeepDisclosures() {
+        continueAfterFailure = false
+        let app = XCUIApplication(); app.launchArguments = ["-companionDemo", "-companionAlertsOffReview"]; app.launch()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        app.buttons["Settings"].tap()
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+        let top = XCTAttachment(screenshot: app.screenshot()); top.name = "Alerts off — clean settings"; top.lifetime = .keepAlways; add(top)
+        for _ in 0..<3 {
+            XCTAssertFalse(app.staticTexts["Off"].exists)
+            XCTAssertFalse(app.buttons["Notification diagnostics"].exists)
+            XCTAssertFalse(app.buttons["Send test notification"].exists)
+            XCTAssertFalse(app.staticTexts["Waiting for a linked Mac."].exists)
+            app.swipeUp()
+        }
+        XCTAssertTrue(app.switches["Follow active tasks"].exists)
+        for text in ["Viewing links disclose account email and grant read-only access. They cannot send instructions or approve actions on a Mac.",
+                     "A Mac must be awake and running CodexGauge to provide fresh data.",
+                     "Shows local Codex tasks. Cloud-only Work chats and live compaction status aren’t available."] {
+            XCTAssertTrue(app.staticTexts[text].exists)
+        }
+        let bottom = XCTAttachment(screenshot: app.screenshot()); bottom.name = "Live toggle and intact disclosures"; bottom.lifetime = .keepAlways; add(bottom)
+    }
+    @MainActor func testOverviewWorkingIndicatorSurvivesTabAndScrollReuse() {
+        let app = XCUIApplication(); app.launchArguments = ["-companionDemo"]; app.launch()
+        XCTAssertTrue(app.navigationBars["Overview"].waitForExistence(timeout: 10))
+        for iteration in 0..<4 {
+            app.tabBars.buttons["Tasks"].tap()
+            XCTAssertTrue(app.staticTexts["Build the iPhone companion"].waitForExistence(timeout: 5))
+            app.tabBars.buttons["Overview"].tap()
+            app.swipeUp()
+            let title = app.staticTexts["Build the iPhone companion"]
+            XCTAssertTrue(title.waitForExistence(timeout: 5))
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = "Overview working glyph after tab and scroll reuse \(iteration)"; shot.lifetime = .keepAlways; add(shot)
+            app.swipeDown()
+        }
+    }
+
 }

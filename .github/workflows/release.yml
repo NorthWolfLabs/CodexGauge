@@ -181,8 +181,6 @@ jobs:
         env:
           RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
           RELEASE_TAG: ${{ needs.validate.outputs.tag }}
-          CODEXGAUGE_UPDATE_FEED_URL: ${{ vars.CODEXGAUGE_UPDATE_FEED_URL }}
-          CODEXGAUGE_UPDATE_PUBLIC_KEY: ${{ vars.CODEXGAUGE_UPDATE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           root="$RUNNER_TEMP/unsigned-release"
@@ -194,8 +192,6 @@ jobs:
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -archivePath "$archive" \
-            CODEXGAUGE_UPDATE_FEED_URL="$CODEXGAUGE_UPDATE_FEED_URL" \
-            CODEXGAUGE_UPDATE_PUBLIC_KEY="$CODEXGAUGE_UPDATE_PUBLIC_KEY" \
             ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
           app="$archive/Products/Applications/CodexGauge.app"
           binary="$app/Contents/MacOS/CodexGauge"
@@ -278,29 +274,13 @@ jobs:
           app="$output/app/CodexGauge.app"
           binary="$app/Contents/MacOS/CodexGauge"
           [[ -d "$app" && -f "$binary" ]] || { print -u2 'Unsigned input has an unexpected layout.'; exit 1; }
-          # Sparkle's pinned framework is the only permitted nested code. Accept
-          # only its standard, internal framework links, never arbitrary links.
-          framework="$app/Contents/Frameworks/Sparkle.framework"
-          while IFS= read -r link; do
-            relative="${link#$framework/}"
-            case "$relative" in
-              Versions/Current) expected=B ;;
-              Autoupdate|Headers|Modules|PrivateHeaders|Resources|Sparkle|Updater.app|XPCServices)
-                expected="Versions/Current/$relative" ;;
-              *) print -u2 "Unexpected symbolic link: $link"; exit 1 ;;
-            esac
-            [[ "$link" == "$framework/"* && "$(readlink "$link")" == "$expected" ]] || exit 1
-          done < <(find "$app" -type l -print)
+          # The Store-compatible package has one executable and no external updater.
+          [[ -z "$(find "$app" -type l -print)" ]] || { print -u2 'Unexpected symbolic link.'; exit 1; }
           mach_files=()
           while IFS= read -r -d $'\0' candidate; do
             if [[ "$(file -b "$candidate")" == *Mach-O* ]]; then mach_files+=("$candidate"); fi
           done < <(find "$app" -type f -print0)
-          expected_mach=(
-            "$binary" "$framework/Versions/B/Sparkle" "$framework/Versions/B/Autoupdate"
-            "$framework/Versions/B/Updater.app/Contents/MacOS/Updater"
-            "$framework/Versions/B/XPCServices/Downloader.xpc/Contents/MacOS/Downloader"
-            "$framework/Versions/B/XPCServices/Installer.xpc/Contents/MacOS/Installer"
-          )
+          expected_mach=("$binary")
           [[ "${#mach_files[@]}" == "${#expected_mach[@]}" ]] || { print -u2 'Unexpected executable count.'; exit 1; }
           for executable in "${mach_files[@]}"; do
             (( ${expected_mach[(Ie)$executable]} > 0 )) || { print -u2 "Unexpected executable: $executable"; exit 1; }
@@ -320,19 +300,27 @@ jobs:
           identity="$(security find-identity -v -p codesigning "$keychain" | sed -nE 's/.*"(Developer ID Application: .* \(ALPX923Y54\))".*/\1/p' | head -n 1)"
           [[ -n "$identity" ]] || { print -u2 'North Wolf Labs Developer ID identity is unavailable.'; exit 1; }
           rm -f "$p12"
-          # These services are not enabled in the nonsandboxed app. Sign with no
-          # inherited input entitlements, then seal the framework and outer app.
-          for nested in "$framework/Versions/B/XPCServices/Installer.xpc" \
-                        "$framework/Versions/B/XPCServices/Downloader.xpc" \
-                        "$framework/Versions/B/Autoupdate" "$framework/Versions/B/Updater.app" "$framework"; do
-            codesign --force --timestamp --options runtime --sign "$identity" "$nested"
-          done
-          codesign --force --timestamp --options runtime --sign "$identity" "$app"
+          cat > "$private/Store.entitlements" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>com.apple.security.app-sandbox</key><true/>
+          <key>com.apple.security.files.user-selected.read-write</key><true/>
+          <key>com.apple.security.files.bookmarks.app-scope</key><true/>
+          <key>com.apple.security.network.client</key><true/>
+          </dict></plist>
+          PLIST
+          codesign --force --timestamp --options runtime --entitlements "$private/Store.entitlements" --sign "$identity" "$app"
           codesign --verify --deep --strict --verbose=2 "$app"
           details="$(codesign -dvvv "$app" 2>&1)"
           [[ "$details" == *'TeamIdentifier=ALPX923Y54'* && "$details" == *'Runtime Version'* && "$details" == *'Timestamp='* ]] || exit 1
           entitlements="$(codesign -d --entitlements :- "$app" 2>/dev/null || true)"
-          [[ "$entitlements" != *'com.apple.security.app-sandbox'* && "$entitlements" != *'com.apple.security.get-task-allow'* ]] || exit 1
+          [[ "$entitlements" != *'com.apple.security.get-task-allow'* && "$entitlements" != *'temporary-exception'* ]] || exit 1
+          codesign -d --entitlements - --xml "$app" > "$private/effective.plist" 2>/dev/null
+          for capability in app-sandbox files.user-selected.read-write files.bookmarks.app-scope network.client; do
+            [[ "$(/usr/libexec/PlistBuddy -c "Print :com.apple.security.$capability" "$private/effective.plist")" == true ]] || exit 1
+          done
+          [[ -f "$app/Contents/Resources/PrivacyInfo.xcprivacy" && -f "$app/Contents/Resources/container-migration.plist" ]] || exit 1
           app_zip="$output/CodexGauge-$RELEASE_TAG.zip"
           ditto -c -k --keepParent "$app" "$app_zip"
           xcrun notarytool submit "$app_zip" --key "$api_key" --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" --wait --output-format json | tee "$output/app-notarization.json"

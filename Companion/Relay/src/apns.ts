@@ -1,7 +1,7 @@
 import type { AlertEvent } from './alerts';
 import { livePayload, type LiveMessage } from './live-activities.ts';
 export interface PushRegistration { token: string; environment: 'sandbox' | 'production'; kinds: string[];
-  liveActivities?: { enabled: boolean; pushToStartToken?: string } }
+  liveActivities?: { enabled: boolean; frequentUpdates?: boolean; pushToStartToken?: string; activeActivityIDs?: string[]; requestForegroundStart?: boolean } }
 export type PushResult = 'accepted' | 'invalid-token' | 'retry' | 'not-configured' | 'configuration-error' | 'rejected';
 const encode = (data: string | Uint8Array) => {
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
@@ -50,22 +50,30 @@ async function deliverAPNs(env: Env, device: PushRegistration, payload: string,
   const jwt = await providerToken(env);
   if (!jwt) return 'not-configured';
   const host = device.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com';
-  const response = await fetch(`https://${host}/3/device/${device.token}`, {
-    // Workers supports manual/follow, not redirect:error. Never forward the JWT.
-    method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(15000),
-    headers: { authorization: `bearer ${jwt}`, 'apns-topic': options.topic,
-      'apns-push-type': options.type, 'apns-priority': options.priority, 'apns-collapse-id': options.collapse,
-      'apns-expiration': String(Math.floor(options.expires)), 'content-type': 'application/json' },
-    body: payload,
-  });
-  if (response.status === 200) { await response.body?.cancel(); return 'accepted'; }
-  // Only retain Apple's error category, never the device token or notification.
-  const reason = await responseReason(response);
-  if (response.status === 410 || ['BadDeviceToken', 'DeviceTokenNotForTopic'].includes(reason)) return 'invalid-token';
-  if (reason === 'ExpiredProviderToken') { cachedProvider = undefined; return 'retry'; }
-  if (response.status === 403 || ['BadTopic', 'MissingTopic', 'TopicDisallowed'].includes(reason)) return 'configuration-error';
-  if (response.status === 429 || response.status >= 500 || reason === 'IdleTimeout') return 'retry';
-  return 'rejected';
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`https://${host}/3/device/${device.token}`, {
+      // Workers supports manual/follow, not redirect:error. Never forward the JWT.
+      method: 'POST', redirect: 'manual', signal: controller.signal,
+      headers: { authorization: `bearer ${jwt}`, 'apns-topic': options.topic,
+        'apns-push-type': options.type, 'apns-priority': options.priority, 'apns-collapse-id': options.collapse,
+        'apns-expiration': String(Math.floor(options.expires)), 'content-type': 'application/json' },
+      body: payload,
+    });
+    if (response.status === 200) { await response.body?.cancel(); return 'accepted'; }
+    // Only retain Apple's error category, never the device token or notification.
+    const reason = await responseReason(response);
+    if (response.status === 410 || ['BadDeviceToken', 'DeviceTokenNotForTopic'].includes(reason)) return 'invalid-token';
+    if (reason === 'ExpiredProviderToken') { cachedProvider = undefined; return 'retry'; }
+    if (response.status === 403 || ['BadTopic', 'MissingTopic', 'TopicDisallowed'].includes(reason)) return 'configuration-error';
+    if (response.status === 429 || response.status >= 500 || reason === 'IdleTimeout') return 'retry';
+    return 'rejected';
+  } finally {
+    // AbortSignal.timeout leaves an internal timer alive after a quick response.
+    // Explicit cleanup also covers response parsing, rejection, and cancellation.
+    clearTimeout(timeout);
+  }
 }
 
 // APNs limits the entire regular notification JSON payload to 4096 UTF-8 bytes.

@@ -1,4 +1,4 @@
-#if DEBUG && STORE_BUILD
+#if DEBUG && STORE_PREVIEW_VERIFICATION
 import Foundation
 import AppKit
 

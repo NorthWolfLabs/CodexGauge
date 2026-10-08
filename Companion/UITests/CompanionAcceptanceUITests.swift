@@ -250,7 +250,7 @@ struct AcceptanceFeed: Sendable {
                        "activity": activity ?? state, "tokensPerMinute": state == "running" ? 1200 : 0,
                        "totalTokens": 100, "agentCount": 0, "eventAt": observedAt]]]
         let data = try JSONSerialization.data(withJSONObject: payload)
-        try await socket.send(.string(String(decoding: data, as: UTF8.self))); _ = try await socket.receive()
+        try await publishRelayFixture(data, on: socket, base: Self.base, id: id, publisher: publisher)
     }
     func rotate() async throws {
         var request = URLRequest(url: Self.base.appending(path: "v1/macs/\(id)/rotate"))
@@ -267,4 +267,26 @@ struct AcceptanceFeed: Sendable {
         let (_, response) = try await URLSession.shared.data(for: request)
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
     }
+}
+
+
+/// Synthetic publisher shared by the integration UI checks. Refresh requests are
+/// display-only controls; only an accepted frame acknowledges a publication.
+func publishRelayFixture(_ data: Data, on socket: URLSessionWebSocketTask, base: URL, id: String, publisher: String) async throws {
+    try await socket.send(.string(String(decoding: data, as: UTF8.self)))
+    while true {
+        let message = try await socket.receive()
+        let reply: Data
+        switch message { case .string(let text): reply = Data(text.utf8); case .data(let bytes): reply = bytes; @unknown default: throw URLError(.badServerResponse) }
+        let value = try JSONSerialization.jsonObject(with: reply) as? [String: Any]
+        if value?["type"] as? String == "accepted" { break }
+        guard value?["type"] as? String == "refresh" else { throw URLError(.badServerResponse) }
+    }
+    var request = URLRequest(url: base.appending(path: "v1/macs/\(id)/push"))
+    request.httpMethod = "POST"; request.timeoutInterval = 25
+    request.setValue("Bearer \(publisher)", forHTTPHeaderField: "Authorization")
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: ["observations": [JSONSerialization.jsonObject(with: data)]])
+    let (_, response) = try await URLSession.shared.data(for: request)
+    guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
 }

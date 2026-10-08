@@ -23,7 +23,7 @@ final class AppState {
     let codexAccess: ScopedCodexAccess
     var codexDataURL: URL { codexAccess.directoryURL ?? settings.codexHomeURL }
     var isChoosingCodexAccess = false
-    @ObservationIgnored lazy var companion = CompanionPublisher { [weak self] id in self?.companionSnapshot(installationID: id) }
+    @ObservationIgnored lazy var companion = CompanionPublisher { [weak self] id in self?.companionSnapshotForPublication(installationID: id) }
     private(set) var companionAccountID: String?
     private let alertStore: any AlertMonitorStoring
     @ObservationIgnored private lazy var alertMonitor = AlertMonitor(settings: settings, local: notifications, store: alertStore)
@@ -110,7 +110,13 @@ final class AppState {
     }
 
     func bootstrap() async {
+        #if DEBUG
+        if !ProcessInfo.processInfo.arguments.contains("-verifySandboxMigration") {
+            companion.startIfEnabled()
+        }
+        #else
         companion.startIfEnabled()
+        #endif
         if automaticMonitoring { RetiredIntegrationCleanup.run(identity: identity) }
         await loadCachedSnapshot()
         await refreshNotificationAuthorization()
@@ -319,12 +325,10 @@ final class AppState {
     }
 
     func openChatGPT() {
-        let locations = [
-            "/Applications/ChatGPT.app",
-            "\(NSHomeDirectory())/Applications/ChatGPT.app"
-        ]
-        if let path = locations.first(where: { FileManager.default.fileExists(atPath: $0) }) {
-            NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: .init())
+        let workspace = NSWorkspace.shared
+        if let url = workspace.urlForApplication(withBundleIdentifier: "com.openai.codex")
+            ?? workspace.urlForApplication(withBundleIdentifier: "com.openai.chat") {
+            NSWorkspace.shared.openApplication(at: url, configuration: .init())
         }
     }
 

@@ -1,7 +1,8 @@
 import SwiftUI
 import Charts
 
-struct CompanionAccountChart: View {
+struct CompanionAccountChart: View, Equatable {
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.account == rhs.account }
     let account: CompanionAccount
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var range = CompanionActivityRange.month
@@ -9,28 +10,51 @@ struct CompanionAccountChart: View {
     var body: some View {
         let days = CompanionChartData.days(account.dailyTokens, count: range.dayCount(at: .now), endingAt: .now)
         let selected = selectedDate.flatMap { CompanionChartData.selectedDay(in: days, at: $0) }
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             Picker("Period", selection: $range) {
                 ForEach(CompanionActivityRange.allCases) { Text($0.title).tag($0) }
             }.pickerStyle(.menu).labelsHidden().accessibilityIdentifier("companion.chart.range")
                 .onChange(of: range) { selectedDate = nil }
                 .onChange(of: account.id) { selectedDate = nil }
             if days.isEmpty {
-                ContentUnavailableView("No token history", systemImage: "chart.bar", description: Text("Daily activity will appear when Codex provides it."))
+                ContentUnavailableView {
+                    Label {
+                        Text("No token history")
+                            .lineLimit(nil)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: { Image(systemName: "chart.bar") }
+                } description: {
+                    Text("Daily activity will appear when Codex provides it.")
+                }
             } else {
                 VStack(alignment: .leading, spacing: 3) {
                     Text((selected?.tokens ?? CompanionChartData.total(days)).formatted()).font(.title2.bold()).monospacedDigit()
+                        .lineLimit(nil).fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("companion.chart.value")
                     Text(selected.map { $0.date.formatted(date: .abbreviated, time: .omitted) } ?? "Observed tokens · \(range.periodName.lowercased())").font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("companion.chart.period")
                 }
                 Chart(days) { day in
-                    BarMark(x: .value("Date", day.date, unit: .day), y: .value("Tokens", day.tokens))
-                        .foregroundStyle(.blue.gradient)
-                        .opacity(selected == nil || selected?.date == day.date ? 1 : 0.35)
-                        .accessibilityLabel(day.date.formatted(date: .abbreviated, time: .omitted))
-                        .accessibilityValue("\(day.tokens.formatted()) tokens")
+                    if range.usesLineChart {
+                        LineMark(x: .value("Date", day.date, unit: .day), y: .value("Tokens", day.tokens))
+                            .foregroundStyle(.blue).interpolationMethod(.linear)
+                            .lineStyle(StrokeStyle(lineWidth: 2))
+                            .accessibilityLabel(day.date.formatted(date: .abbreviated, time: .omitted))
+                            .accessibilityValue("\(day.tokens.formatted()) tokens")
+                        // A single observation still needs a visible mark.
+                        if days.count == 1 || selected?.date == day.date {
+                            PointMark(x: .value("Date", day.date, unit: .day), y: .value("Tokens", day.tokens))
+                                .foregroundStyle(.blue).accessibilityHidden(true)
+                        }
+                    } else {
+                        BarMark(x: .value("Date", day.date, unit: .day), y: .value("Tokens", day.tokens))
+                            .foregroundStyle(.blue.gradient)
+                            .opacity(selected == nil || selected?.date == day.date ? 1 : 0.35)
+                            .accessibilityLabel(day.date.formatted(date: .abbreviated, time: .omitted))
+                            .accessibilityValue("\(day.tokens.formatted()) tokens")
+                    }
                 }
                 .chartXSelection(value: $selectedDate)
                 .chartGesture { proxy in
@@ -66,9 +90,8 @@ struct CompanionAccountChart: View {
                     Text((CompanionChartData.total(days) / Int64(days.count)).formatted()).monospacedDigit()
                         .accessibilityIdentifier("companion.chart.average")
                 }.font(.subheadline)
-                Text("\(days.count) days reported. Missing days are not treated as zero.").font(.caption).foregroundStyle(.secondary)
             }
-            if account.historyTruncated == true { Text("All includes the available recent history sent by your Macs.").font(.caption).foregroundStyle(.secondary) }
+            if account.historyTruncated == true { Text("Showing available history.").font(.caption).foregroundStyle(.secondary) }
         }.padding(.vertical, 8)
     }
 }

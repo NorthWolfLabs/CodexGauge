@@ -59,6 +59,90 @@ test('publisher relays state, usage sharing strips tasks, unauthorized reads fai
   } finally { publisher.close(); }
 });
 
+test('a missing mature activity is retired on foreground registration, while fresh cards and explicit dismissals survive', async () => {
+  const keys = await create(), pushToken = credential();
+  const post = (action: string, body: unknown) => fetch(`${base}/v1/macs/${keys.id}/${action}`, {
+    method: 'POST', headers: { Authorization: `Bearer ${keys.reader}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  const publisher = await open(keys.id, keys.publisher);
+  try {
+    const feed = snapshot(keys.id); const ack = next(publisher); publisher.send(JSON.stringify(feed)); await ack;
+    const registration = { token: pushToken, environment: 'sandbox', kinds: [], liveActivities: { enabled: true, pushToStartToken: credential() } };
+    assert.equal((await post('notifications', registration)).status, 200);
+    const card = { token: pushToken, environment: 'sandbox', activityID: 'orphaned-card', activityToken: credential() };
+    assert.equal((await post('live-activity', card)).status, 200);
+    const empty = { ...registration, liveActivities: { ...registration.liveActivities, activeActivityIDs: [] } };
+    assert.equal((await post('notifications', empty)).status, 200);
+    // Selection requires a paired device. Bind the same subscriber identity.
+    const phone = { id: randomUUID(), name: 'Recovery phone', token: credential() };
+    assert.equal((await post('pair', phone)).status, 200);
+    const select = (activityID = 'orphaned-card') => fetch(`${base}/v1/macs/${keys.id}/live-selection`, { method: 'POST',
+      headers: { Authorization: `Bearer ${phone.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ activityID }) });
+    const registerPaired = (body: unknown) => fetch(`${base}/v1/macs/${keys.id}/notifications`, { method: 'POST',
+      headers: { Authorization: `Bearer ${phone.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal((await registerPaired(empty)).status, 200);
+    assert.equal((await select()).status, 200, 'A fresh card survives an earlier empty registry report');
+    await new Promise(resolve => setTimeout(resolve, 30_100));
+    assert.equal((await registerPaired(empty)).status, 200);
+    assert.equal((await select()).status, 409, 'The orphaned activity token is retired');
+    assert.equal((await post('live-activity', { ...card, activityID: 'replacement-card' })).status, 200);
+    assert.equal((await select('replacement-card')).status, 200);
+    assert.equal((await post('live-activity', { ...card, activityID: 'replacement-card', activityToken: undefined, dismissed: true })).status, 200);
+    assert.equal((await registerPaired(empty)).status, 200);
+    assert.equal((await select('replacement-card')).status, 409, 'Explicit dismissal survives ordinary registration');
+  } finally { publisher.close(); }
+});
+
+test('Live Activity cycling is device-scoped and receives phase/context/rate before the alert checkpoint', async () => {
+  const keys = await create();
+  const device = { id: randomUUID(), name: 'Cycle phone', token: credential() };
+  const other = { id: randomUUID(), name: 'Other phone', token: credential() };
+  const send = (action: string, bearer: string, body: unknown) => fetch(`${base}/v1/macs/${keys.id}/${action}`, {
+    method: 'POST', headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  assert.equal((await send('pair', keys.reader, device)).status, 200);
+  assert.equal((await send('pair', keys.reader, other)).status, 200);
+  const publisher = await open(keys.id, keys.publisher);
+  const observedAt = Date.now() / 1000;
+  const feed = { schemaVersion: 1, id: keys.id, name: 'Cycle Mac', observedAt,
+    tasks: ['a', 'b'].map((id, index) => ({ id, title: 'Task ' + id, project: 'Review', state: 'running', activity: 'Thinking',
+      contextPercent: 40, tokensPerMinute: 100, totalTokens: 1000, agentCount: 0, startedAt: observedAt - 20 + index * 5 })) };
+  const publish = async () => { const ack = next(publisher); publisher.send(JSON.stringify(feed)); assert.equal((await ack).type, 'accepted'); };
+  try {
+    await publish();
+    const regularToken = credential();
+    assert.equal((await send('notifications', device.token, { token: regularToken, environment: 'sandbox', kinds: [], liveActivities: { enabled: true } })).status, 200);
+    assert.equal((await send('live-activity', device.token, { token: regularToken, environment: 'sandbox', activityID: 'cycle-card', activityToken: credential() })).status, 200);
+    const select = async (afterTaskID: string) => {
+      const response = await send('live-selection', device.token, { activityID: 'cycle-card', afterTaskID });
+      assert.equal(response.status, 200);
+      return await response.json() as { state: { taskID: string; taskIndex: number; selectionIsPinned: boolean; activity: string; contextPercent: number; tokensPerMinute: number }; deliveryTimestamp: number };
+    };
+    assert.equal((await select('a')).state.taskID, 'b');
+    // Same lifecycle/alert fields, under 30 seconds: this used to be withheld
+    // from PushReceiver even though foreground viewers saw it immediately.
+    feed.observedAt += 0.5;
+    Object.assign(feed.tasks[1], { activity: 'Using a tool', contextPercent: 67, tokensPerMinute: 8400 });
+    await publish();
+    const changed = await select('a');
+    assert.equal(changed.state.taskID, 'b'); assert.equal(changed.state.taskIndex, 1);
+    assert.equal(changed.state.selectionIsPinned, true);
+    assert.equal(changed.state.activity, 'Using a tool'); assert.equal(changed.state.contextPercent, 67);
+    assert.equal(changed.state.tokensPerMinute, 8400);
+    assert.ok(Math.abs(changed.deliveryTimestamp - Date.now() / 1000) < 2);
+    assert.equal((await select('b')).state.taskID, 'a');
+    for (const bearer of [keys.reader, keys.usageReader, keys.publisher]) {
+      assert.equal((await send('live-selection', bearer, { activityID: 'cycle-card', afterTaskID: 'a' })).status, 403);
+    }
+    assert.equal((await send('live-selection', other.token, { activityID: 'cycle-card', afterTaskID: 'a' })).status, 409);
+    assert.equal((await send('live-selection', device.token, { activityID: 'cycle-card', deviceID: other.id })).status, 400);
+    assert.equal((await send('live-selection', device.token, { activityID: 'wrong-card' })).status, 409);
+    const remove = await fetch(`${base}/v1/macs/${keys.id}/devices`, { method: 'DELETE', headers: { Authorization: `Bearer ${keys.publisher}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: device.id }) });
+    assert.equal(remove.status, 200);
+    assert.equal((await send('live-selection', device.token, { activityID: 'cycle-card' })).status, 401);
+  } finally { publisher.close(); }
+});
+
 test('reader cannot inject snapshots or commands toward a publisher', async () => {
   const keys = await create();
   const viewer = await open(keys.id, keys.reader);
@@ -184,6 +268,26 @@ test('duplicate publisher frames are acknowledged without rolling back state', a
     ack = next(publisher); publisher.send(JSON.stringify(older)); await ack;
     const response = await fetch(`${base}/v1/macs/${keys.id}/snapshot`, { headers: { Authorization: `Bearer ${keys.reader}` } });
     assert.equal((await response.json() as { snapshot: { tasks: unknown[] } }).snapshot.tasks.length, 1);
+  } finally { publisher.close(); }
+});
+
+test('widget reads refresh an old checkpoint from a connected Mac without another database checkpoint', async () => {
+  const keys = await create(), publisher = await open(keys.id, keys.publisher);
+  const old = snapshot(keys.id); old.observedAt -= 10;
+  try {
+    const ack = next(publisher); publisher.send(JSON.stringify(old)); await ack;
+    publisher.on('message', message => {
+      if (JSON.parse(message.toString()).type === 'refresh') {
+        const fresh = snapshot(keys.id); fresh.tasks[0].totalTokens = 999;
+        publisher.send(JSON.stringify(fresh));
+      }
+    });
+    const response = await fetch(`${base}/v1/macs/${keys.id}/snapshot`, { headers: { Authorization: `Bearer ${keys.reader}` } });
+    assert.equal(response.status, 200);
+    const value = await response.json() as any;
+    assert.equal(value.snapshot.tasks[0].totalTokens, 999);
+    const diagnostics = await fetch(`${base}/v1/macs/${keys.id}/diagnostics`, { headers: { Authorization: `Bearer ${keys.publisher}` } });
+    assert.equal(((await diagnostics.json()) as any).runtime.checkpoints, 1);
   } finally { publisher.close(); }
 });
 
@@ -335,4 +439,74 @@ test('rotated viewing links cannot register Live Activities or restore their sub
   assert.equal((await fetch(`${url}/live-activity`, { method: 'POST', headers,
     body: JSON.stringify({ token: device, environment: 'sandbox', activityID: 'old', dismissed: true }),
   })).status, 401);
+});
+
+test('paired devices have independent read-only access and publisher-only removal', async () => {
+  const keys = await create();
+  const pair = async (name: string, share = keys.reader) => {
+    const device = { id: randomUUID(), name, token: credential() };
+    const response = await fetch(`${base}/v1/macs/${keys.id}/pair`, {
+      method: 'POST', headers: { Authorization: `Bearer ${share}`, 'Content-Type': 'application/json' }, body: JSON.stringify(device),
+    });
+    assert.equal(response.status, 200); return device;
+  };
+  const first = await pair('Test iPhone A'), second = await pair('Test iPhone B'), limited = await pair('Usage-only iPhone', keys.usageReader);
+  const ownerHeaders = { Authorization: `Bearer ${keys.publisher}`, 'Content-Type': 'application/json' };
+  const listing = await fetch(`${base}/v1/macs/${keys.id}/devices`, { headers: ownerHeaders });
+  const text = await listing.text();
+  assert.equal(listing.status, 200); assert.equal(JSON.parse(text).devices.length, 3);
+  assert.ok(!text.includes('digest') && !text.includes(first.token), 'No device credentials in the owner list');
+  for (const device of [first, limited]) {
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/devices`, { headers: { Authorization: `Bearer ${device.token}` } })).status, 403);
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/devices`, { method: 'DELETE', headers: { Authorization: `Bearer ${device.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: second.id }) })).status, 403);
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/pair`, { method: 'POST', headers: { Authorization: `Bearer ${device.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ id: randomUUID(), name: 'Unauthorized', token: credential() }) })).status, 403);
+  }
+  const publisher = await open(keys.id, keys.publisher);
+  const viewer = await open(keys.id, first.token), other = await open(keys.id, second.token);
+  try {
+    const ack = next(publisher); publisher.send(JSON.stringify(snapshot(keys.id))); assert.equal((await ack).type, 'accepted');
+    const usage = await fetch(`${base}/v1/macs/${keys.id}/snapshot`, { headers: { Authorization: `Bearer ${limited.token}` } });
+    assert.equal((await usage.json() as { snapshot: { tasks: unknown[] } }).snapshot.tasks.length, 0);
+    const closed = new Promise<number>(resolve => viewer.once('close', code => resolve(code)));
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/devices`, { method: 'DELETE', headers: ownerHeaders, body: JSON.stringify({ id: first.id }) })).status, 200);
+    assert.equal(await closed, 1008);
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/snapshot`, { headers: { Authorization: `Bearer ${first.token}` } })).status, 401);
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/snapshot`, { headers: { Authorization: `Bearer ${second.token}` } })).status, 200);
+    assert.equal(other.readyState, WebSocket.OPEN);
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/pair`, { method: 'DELETE', headers: { Authorization: `Bearer ${second.token}` } })).status, 200);
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/snapshot`, { headers: { Authorization: `Bearer ${second.token}` } })).status, 401);
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/rotate`, { method: 'POST', headers: ownerHeaders, body: JSON.stringify({ reader: credential(), usageReader: credential() }) })).status, 200);
+    assert.equal((await fetch(`${base}/v1/macs/${keys.id}/snapshot`, { headers: { Authorization: `Bearer ${limited.token}` } })).status, 401);
+  } finally { publisher.close(); viewer.close(); other.close(); }
+});
+
+test('pairing validates credentials, bounded names, unique identities and capacity', async () => {
+  const keys = await create(), id = randomUUID(), secret = credential();
+  const send = (device: unknown, bearer = keys.reader) => fetch(`${base}/v1/macs/${keys.id}/pair`, { method: 'POST', headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' }, body: JSON.stringify(device) });
+  for (const token of [keys.publisher, keys.reader, keys.usageReader]) assert.equal((await send({ id, name: 'Phone', token })).status, 400);
+  assert.equal((await send({ id, name: 'x'.repeat(81), token: secret })).status, 400);
+  assert.equal((await send({ id, name: 'Phone', token: secret, command: 'run' })).status, 400);
+  assert.equal((await send({ id, name: 'Phone', token: secret })).status, 200);
+  assert.equal((await send({ id, name: 'Phone', token: secret })).status, 200, 'Idempotent retry');
+  assert.equal((await send({ id, name: 'Other', token: credential() })).status, 409);
+  assert.equal((await send({ id: randomUUID(), name: 'Duplicate token', token: secret })).status, 409);
+  for (let i = 1; i < 16; i++) assert.equal((await send({ id: randomUUID(), name: `Phone ${i}`, token: credential() })).status, 200);
+  assert.equal((await send({ id: randomUUID(), name: 'Over limit', token: credential() })).status, 429);
+  assert.equal((await send({ id: randomUUID(), name: 'Publisher misuse', token: credential() }, keys.publisher)).status, 403);
+});
+
+test('removal revokes push access and late legacy registration cannot replace device ownership', async () => {
+  const keys = await create(), device = { id: randomUUID(), name: 'Test phone', token: credential() };
+  const send = (action: string, method: string, bearer: string, body: unknown) => fetch(`${base}/v1/macs/${keys.id}/${action}`, { method, headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await send('pair', 'POST', keys.reader, device)).status, 200);
+  const registration = { token: credential(), environment: 'sandbox', kinds: [] };
+  assert.equal((await send('notifications', 'POST', keys.reader, registration)).status, 200);
+  assert.equal((await send('notifications', 'POST', device.token, registration)).status, 200);
+  assert.equal((await send('notifications', 'POST', keys.reader, registration)).status, 403);
+  assert.equal((await send('notifications', 'DELETE', keys.reader, registration)).status, 403);
+  assert.equal((await send('devices', 'DELETE', keys.publisher, { id: device.id })).status, 200);
+  assert.equal((await send('notifications', 'POST', device.token, registration)).status, 401);
+  const response = await send('test-notification', 'POST', keys.reader, { token: registration.token, environment: 'sandbox' });
+  const value = await response.json() as { result: string };
+  assert.equal(value.result, 'not-registered');
 });

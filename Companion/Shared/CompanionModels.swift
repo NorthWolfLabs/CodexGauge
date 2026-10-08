@@ -73,8 +73,22 @@ struct CompanionCredit: Codable, Hashable, Identifiable, Sendable {
     var balance: String?
     var displayBalance: String {
         if unlimited { return "Unlimited" }
-        if let balance, !balance.isEmpty { return balance }
+        if let balance, !balance.isEmpty { return CompanionCreditFormatting.balance(balance) }
         return hasCredits ? "Available" : "0"
+    }
+}
+
+/// Round only the displayed balance; keep the original decimal string on the wire.
+enum CompanionCreditFormatting {
+    static func balance(_ value: String) -> String {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.range(of: #"\A[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?\z"#,
+                         options: .regularExpression) != nil,
+              var decimal = Decimal(string: text, locale: Locale(identifier: "en_US_POSIX")),
+              !decimal.isNaN else { return value }
+        var rounded = Decimal()
+        NSDecimalRound(&rounded, &decimal, 4, .plain)
+        return NSDecimalNumber(decimal: rounded).stringValue
     }
 }
 
@@ -152,6 +166,9 @@ struct CompanionTask: Codable, Hashable, Identifiable, Sendable {
     var metrics: CompanionTaskMetrics? = nil
     func isStale(at now: Date) -> Bool { observedAt.map { now.timeIntervalSince($0) > 90 } ?? false }
     var hasRate: Bool { hasTokenObservation ?? (tokensPerMinute > 0) }
+    // Accept old Mac snapshots without presenting a missing phase as a failure.
+    var displayActivity: String { state == .running && activity == "Activity unavailable" ? "Working" : activity }
+
 }
 
 struct CompanionSnapshot: Codable, Hashable, Identifiable, Sendable {
@@ -202,6 +219,7 @@ struct CompanionLink: Codable, Hashable, Identifiable, Sendable {
     var server: URL
     var token: String
     var name: String
+    var deviceID: String? = nil
 
     var shareURL: URL {
         var components = URLComponents()
@@ -356,6 +374,12 @@ private extension String {
 enum CompanionActivityRange: String, CaseIterable, Identifiable, Sendable {
     case today, week, month, quarter, year, all
     var id: Self { self }
+    var usesLineChart: Bool {
+        switch self {
+        case .quarter, .year, .all: true
+        case .today, .week, .month: false
+        }
+    }
     var title: String {
         switch self {
         case .today: "Today"
@@ -396,5 +420,76 @@ enum CompanionTaskTiming {
     static func observedElapsed(start: Date, task: Date?, snapshot: Date?) -> TimeInterval? {
         guard let observation = [task, snapshot].compactMap({ $0 }).min(), observation >= start else { return nil }
         return observation.timeIntervalSince(start)
+    }
+}
+
+/// Latest-value telemetry may be replaced; notification transitions are retained
+/// locally until the relay has accepted them into its durable inbox. This file
+/// contains display data only, never publisher credentials or APNs tokens.
+struct CompanionPushJournal: Codable, Sendable {
+    private(set) var pending: [CompanionSnapshot] = []
+    private var signature: String?
+
+    mutating func observe(_ snapshot: CompanionSnapshot) throws -> Bool {
+        let next = try snapshot.notificationSignature()
+        guard signature != next else { return false }
+        signature = next
+        pending.removeAll { $0.id != snapshot.id || snapshot.observedAt.timeIntervalSince($0.observedAt) > 3500 }
+        pending.append(snapshot.pushObservation)
+        // The server's notification expiry is one hour. Bound local disk use as
+        // well, retaining the baseline and most recent transitions under overload.
+        if pending.count > 128 { pending = [pending[0]] + Array(pending.suffix(127)) }
+        return true
+    }
+    mutating func acknowledge(through date: Date) -> Bool {
+        let before = pending.count
+        pending.removeAll { $0.observedAt <= date }
+        return pending.count != before
+    }
+    func batch(latest: CompanionSnapshot) throws -> Data {
+        struct Batch: Encodable { let observations: [CompanionSnapshot] }
+        let retained = pending.filter { $0.id == latest.id && latest.observedAt.timeIntervalSince($0.observedAt) < 3500 }
+        var observations = Array(retained.prefix(15))
+        // Never skip ahead of unsent important transitions. Otherwise the
+        // receiver's ordering guard would discard those transitions on replay.
+        if retained.count <= 15 && (observations.last?.observedAt ?? .distantPast) < latest.observedAt {
+            observations.append(latest.pushObservation)
+        }
+        if observations.isEmpty { observations = [latest.pushObservation] }
+        var data = try CompanionCoding.encoder.encode(Batch(observations: observations))
+        while data.count > 1024 * 1024 && observations.count > 1 {
+            observations.removeLast()
+            data = try CompanionCoding.encoder.encode(Batch(observations: observations))
+        }
+        guard data.count <= 1024 * 1024 else { throw CompanionError.invalidData }
+        return data
+    }
+}
+
+extension CompanionSnapshot {
+    var pushObservation: CompanionSnapshot {
+        var result = self
+        result.account?.dailyTokens = []
+        result.account?.metrics = nil
+        result.account?.credits = nil
+        result.account?.lifetimeTokens = nil
+        result.tasks = tasks.map { task in
+            var result = task
+            result.metrics = task.metrics?.contextIncludesAgent.map { includes in
+                CompanionTaskMetrics(contextIncludesAgent: includes)
+            }
+            return result
+        }
+        return result
+    }
+    func notificationSignature() throws -> String {
+        struct Window: Encodable { let id: String; let low: Bool; let resetsAt: Date? }
+        struct Task: Encodable { let id: String; let state: CompanionTaskState; let eventAt: Date?; let startedAt: Date? }
+        struct Signature: Encodable { let accountID: String?; let banked: Int?; let windows: [Window]; let tasks: [Task] }
+        let value = Signature(accountID: account?.id, banked: account?.bankedResets,
+            windows: (account?.windows ?? []).map { Window(id: $0.id, low: $0.remainingPercent <= 10, resetsAt: $0.resetsAt) },
+            tasks: tasks.map { Task(id: $0.id, state: $0.state, eventAt: $0.eventAt, startedAt: $0.startedAt) })
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; encoder.dateEncodingStrategy = .secondsSince1970
+        return String(decoding: try encoder.encode(value), as: UTF8.self)
     }
 }

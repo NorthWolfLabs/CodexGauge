@@ -33,7 +33,7 @@ enum ResetAlertKind: String, Codable, Sendable, CaseIterable {
 
     var title: String {
         switch self {
-        case .banked: "Banked reset added"
+        case .banked: "Limit reset added"
         case .allowance: "Allowance reset"
         case .low: "Allowance low"
         case .attention: "Task needs input or approval"
@@ -106,7 +106,7 @@ struct ResetDetector: Codable, Equatable, Sendable {
                 }
                 let increase = max(value - old, Set(newGrants.map(\.id)).count)
                 if increase > 0 {
-                    alerts.append(ResetAlert(kind: .banked, key: "banked", name: "Banked resets",
+                    alerts.append(ResetAlert(kind: .banked, key: "banked", name: "Limit resets",
                                              added: increase, available: value, since: since, observedAt: now,
                                              isCatchUp: catchUp || (lastAt.map { since < $0 } ?? false)))
                 }

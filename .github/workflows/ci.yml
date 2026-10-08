@@ -26,6 +26,10 @@ jobs:
           candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
           if [[ -n "$candidate" ]]; then sudo xcode-select --switch "$candidate/Contents/Developer"; fi
           ./Scripts/check-toolchain.sh
+      - name: Set up uv for repository checks
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: false
       - name: Check repository and documentation
         run: ./Scripts/check-repository.sh
       - name: Verify Universal 2 release build

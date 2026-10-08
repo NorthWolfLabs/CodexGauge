@@ -26,3 +26,10 @@ node_modules/
 .wrangler/
 .dev.vars*
 Companion/.swiftpm/
+__pycache__/
+*.py[cod]
+*.log
+.venv/
+# Local screenshots, capture harnesses, checkpoints and account telemetry.
+/Review/*/
+/Review/Relay-Cost-*.json

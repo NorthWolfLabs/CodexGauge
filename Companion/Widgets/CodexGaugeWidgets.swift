@@ -91,7 +91,7 @@ struct AllowanceWidgetView: View {
                         VStack(alignment: .leading, spacing: 10) {
                             reset(window).font(.caption).lineLimit(2)
                             if let banked = entry.bankedResets {
-                                LabeledContent("Banked resets", value: "\(banked)")
+                                LabeledContent("Limit resets", value: "\(banked)")
                             }
                             ForEach(entry.credits.prefix(2)) { credit in
                                 LabeledContent(entry.credits.count > 1 ? "\(credit.name) credits" : "Credits", value: credit.displayBalance)

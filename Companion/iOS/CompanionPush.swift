@@ -1,4 +1,5 @@
 import UIKit
+import ActivityKit
 import UserNotifications
 import Observation
 import OSLog
@@ -6,10 +7,7 @@ import OSLog
 @MainActor @Observable final class CompanionPush: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     static let shared = CompanionPush()
     var status = "Not enabled"
-    var testStatus: String?
-    var isTesting = false
     var pendingRoute: CompanionNotificationRoute?
-    var canSendTest: Bool { !links.isEmpty && !isTesting }
     var kinds: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "phoneAlertKinds") ?? [])
     private var token: String?
     private var links: [CompanionLink] = []
@@ -19,20 +17,30 @@ import OSLog
     private var removing: Set<String> = []
     private let session = CompanionNoRedirect.session()
     static let choices: [(String, String)] = [("low", "Allowance low"), ("allowance", "Allowance reset"),
-        ("banked", "Banked reset added"), ("attention", "Task needs input or approval"),
+        ("banked", "Limit reset added"), ("attention", "Task needs input or approval"),
         ("completed", "Task completed"), ("working", "Task working")]
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
-        if arguments.contains("-companionDemo") || arguments.contains("-companionRelayDemo")
+        if arguments.contains("-companionDemo") && arguments.contains("-companionAlertsOffReview") { Self.shared.kinds = []; Self.shared.status = "Off" }
+        if arguments.contains("-companionLiveActivityReview") || arguments.contains("-companionDemo") || arguments.contains("-companionRelayDemo")
             || arguments.contains("-companionResetUITestLinks") { return true }
         #endif
         if let data = CompanionCredentialStore.read("viewing-links"), let links = try? CompanionCoding.decoder.decode([CompanionLink].self, from: data) {
             Self.shared.setLinks(links)
         }
         CompanionLiveActivities.shared.start()
+        #if DEBUG
+        if arguments.contains("-companionInspectLiveActivities") {
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                let activities = Activity<CompanionActivityAttributes>.activities
+                print("Live registry: count=\(activities.count), active=\(activities.filter { $0.activityState == .active || $0.activityState == .stale }.count), enabled=\(ActivityAuthorizationInfo().areActivitiesEnabled), followEnabled=\(CompanionLiveActivities.shared.enabled), links=\(Self.shared.links.count), startTokenLength=\(CompanionLiveActivities.shared.startToken?.count ?? 0)")
+            }
+        }
+        #endif
         return true
     }
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
@@ -84,6 +92,7 @@ import OSLog
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         var payload: [String: Any] = ["token": token, "environment": Self.environment, "activityID": id, "dismissed": dismissed, "ended": ended]
         if let activityToken { payload["activityToken"] = activityToken }
+        if let selected = CompanionLiveSelectionPreference.task(macID: link.id) { payload["selectedTaskID"] = selected }
         request.httpBody = try JSONSerialization.data(withJSONObject: payload)
         let (stream, response) = try await session.bytes(for: request)
         let statusCode = (response as? HTTPURLResponse)?.statusCode
@@ -96,7 +105,6 @@ import OSLog
         for try await _ in stream { count += 1; guard count <= 4096 else { throw CompanionError.invalidData } }
     }
     func set(_ kind: String, enabled: Bool) async {
-        testStatus = nil
         if enabled {
             guard await authorize() else { return }
             kinds.insert(kind)
@@ -119,50 +127,6 @@ import OSLog
         }
         return true
     }
-    func sendTest() async {
-        guard canSendTest, let link = links.first else { return }
-        #if DEBUG
-        Logger(subsystem: "com.northwolflabs.CodexGauge", category: "Push").notice("Test target \(link.id, privacy: .public), links \(self.links.count)")
-        #endif
-        isTesting = true; testStatus = nil
-        defer { isTesting = false }
-        guard await authorize() else { testStatus = status; return }
-        UIApplication.shared.registerForRemoteNotifications()
-        do {
-            // Registration is asynchronous, including on a fresh installation.
-            for _ in 0..<80 {
-                if token != nil { break }
-                try await Task.sleep(for: .milliseconds(100))
-            }
-            guard let token else { testStatus = "Apple hasn’t registered this device for push notifications yet. Try again shortly."; return }
-            try await register(link, token: token)
-            var request = URLRequest(url: link.server.appending(path: "v1/macs/\(link.id)/test-notification"))
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(link.token)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONSerialization.data(withJSONObject: ["token": token, "environment": Self.environment])
-            let (stream, response) = try await session.bytes(for: request)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw CompanionError.rejected }
-            var bytes = Data()
-            for try await byte in stream { guard bytes.count < 4096 else { throw CompanionError.invalidData }; bytes.append(byte) }
-            let value = try JSONDecoder().decode(TestResponse.self, from: bytes)
-            switch value.result {
-            case "accepted": testStatus = "Apple accepted the test. Check for its notification."
-            case "invalid-token": self.token = nil; testStatus = "Apple rejected this device’s push registration. Reopen the app and try again."
-            case "not-configured": testStatus = "The relay still needs its Apple push key."
-            case "configuration-error": testStatus = "Apple rejected the relay’s push credentials. Check its key, bundle ID, and push environment."
-            case "rate-limited": testStatus = "Wait 30 seconds before sending another test."
-            case "not-registered": testStatus = "This Mac link no longer has a push subscription. Reconnect and try again."
-            default: testStatus = "The test couldn’t be sent. Check the connection and try again."
-            }
-        } catch {
-            #if DEBUG
-            Logger(subsystem: "com.northwolflabs.CodexGauge", category: "Push").notice("Test failure category \(String(describing: type(of: error)), privacy: .public)")
-            #endif
-            testStatus = "The test couldn’t reach the relay. Check the connection and try again."
-        }
-    }
-    private struct TestResponse: Decodable { var result: String }
     private static var environment: String {
         #if DEBUG
         "sandbox"
@@ -207,28 +171,47 @@ import OSLog
             } else if status == "Updating alert choices…" { status = kinds.isEmpty ? "Off" : "Enabled" }
         } while syncAgain
     }
-    private func register(_ link: CompanionLink, token: String, deleting: Bool = false) async throws {
+    func reserveForegroundStart(macID: String) async throws -> (allowed: Bool, retry: Bool, retrySoon: Bool) {
+        for _ in 0..<80 {
+            if token != nil { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        guard let token, let link = links.first(where: { $0.id == macID }), !removing.contains(macID) else { throw URLError(.notConnectedToInternet) }
+        while syncing { try await Task.sleep(for: .milliseconds(50)) }
+        let result = try await register(link, token: token, foregroundStart: true)
+        return (result["foregroundStartAllowed"] == true, result["foregroundStartRetry"] == true, result["foregroundStartRetrySoon"] == true)
+    }
+    @discardableResult private func register(_ link: CompanionLink, token: String, deleting: Bool = false, foregroundStart: Bool = false) async throws -> [String: Bool] {
         var request = URLRequest(url: link.server.appending(path: "v1/macs/\(link.id)/notifications"))
         request.httpMethod = deleting ? "DELETE" : "POST"
         request.setValue("Bearer \(link.token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        var live: [String: Any] = ["enabled": CompanionLiveActivities.shared.canStartRemotely]
+        var live: [String: Any] = ["enabled": CompanionLiveActivities.shared.canStartRemotely, "frequentUpdates": ActivityAuthorizationInfo().frequentPushesEnabled]
         if let startToken = CompanionLiveActivities.shared.startToken { live["pushToStartToken"] = startToken }
+        if let ids = CompanionLiveActivities.shared.activeIDsForReconciliation(macID: link.id) { live["activeActivityIDs"] = ids }
+        if foregroundStart { live["requestForegroundStart"] = true }
         request.httpBody = try JSONSerialization.data(withJSONObject: ["token": token, "environment": Self.environment, "kinds": Array(kinds), "liveActivities": live])
         let (stream, response) = try await session.bytes(for: request)
         let statusCode = (response as? HTTPURLResponse)?.statusCode
         #if DEBUG
-        Logger(subsystem: "com.northwolflabs.CodexGauge", category: "Push").notice("Notification registration for \(link.id, privacy: .public) HTTP \(statusCode ?? 0), device token length \(token.count), start token length \(CompanionLiveActivities.shared.startToken?.count ?? 0)")
+        Logger(subsystem: "com.northwolflabs.CodexGauge", category: "Push").notice("Notification registration for \(link.id, privacy: .public) at \(link.server.host ?? "unknown", privacy: .public) HTTP \(statusCode ?? 0), device token length \(token.count), start token length \(CompanionLiveActivities.shared.startToken?.count ?? 0), foreground requested \(foregroundStart)")
         #endif
         // Revoking viewing links also revokes their push subscriptions server-side.
         // Such a link can be removed locally without trapping the user forever.
-        if deleting && (statusCode == 401 || statusCode == 403) { return }
+        if deleting && (statusCode == 401 || statusCode == 403) { return [:] }
         if statusCode == 401 || statusCode == 403 { throw CompanionError.rejected }
         guard statusCode == 200 else { throw URLError(.badServerResponse) }
         var bytes = Data()
         for try await byte in stream { guard bytes.count < 4096 else { throw CompanionError.invalidData }; bytes.append(byte) }
-        if !deleting, let value = try JSONSerialization.jsonObject(with: bytes) as? [String: Bool], value["configured"] == false {
+        let value = (try JSONSerialization.jsonObject(with: bytes) as? [String: Bool]) ?? [:]
+        if !deleting, value["configured"] == false {
             status = "The relay still needs its Apple push key."
         }
+        #if DEBUG
+        if foregroundStart {
+            Logger(subsystem: "com.northwolflabs.CodexGauge", category: "LiveActivity").notice("Foreground start allowed \(value["foregroundStartAllowed"] == true), retry \(value["foregroundStartRetry"] == true), dismissed \(value["foregroundStartDismissed"] == true)")
+        }
+        #endif
+        return value
     }
 }

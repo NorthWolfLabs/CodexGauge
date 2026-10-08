@@ -13,7 +13,7 @@ CodexGauge does not model or retain prompts, answers, reasoning, command output,
 
 ## Data stored
 
-CodexGauge stores preferences, hashes and allowance-cycle keys needed to avoid duplicate notifications, and the last successful account snapshot in the user’s Application Support directory. Local monitoring does not persist raw task identifiers or detailed task telemetry. Pending task alerts retain up to 200 characters each of the task title and associated project name until delivery. Saved local Codex project metadata supplies the project label; projectless or unknown associations have no label. Salted task-identifier hashes and event timestamps are persisted for notification deduplication. A versioned notification outbox holds pending event summaries and local delivery acknowledgements. The optional companion additionally stores the bounded snapshots described below.
+CodexGauge stores preferences, hashes and allowance-cycle keys needed to avoid duplicate notifications, and the last successful account snapshot in its sandbox container’s Application Support directory. macOS migrates the same app identity’s existing support files and preferences on the first sandbox launch; it does not copy the Codex data folder or authentication files. Local monitoring does not persist raw task identifiers or detailed task telemetry. Pending task alerts retain up to 200 characters each of the task title and associated project name until delivery. Saved local Codex project metadata supplies the project label; projectless or unknown associations have no label. Salted task-identifier hashes and event timestamps are persisted for notification deduplication. A versioned notification outbox holds pending event summaries and local delivery acknowledgements. The optional companion additionally stores the bounded snapshots described below.
 
 ## Notifications
 
@@ -23,7 +23,7 @@ Failed deliveries remain locally queued and retry after temporary errors. Catch-
 
 ## App updates
 
-Configured release builds use Sparkle to check an HTTPS update feed and download signed updates. Automatic checks are off by default and can be enabled in Settings; installation requires the user’s choice. The update host receives ordinary request metadata such as the IP address and app/OS version. Sparkle system-profile reporting is disabled. No Codex usage, task data, or credentials are sent by the updater. Development and beta builds do not start it, and no public update feed is configured yet.
+Mac builds contain no external updater or update-feed configuration. App Store distribution uses Apple’s update delivery. Locally installed development and beta builds are updated in place during testing.
 
 ## Local-only limitations
 

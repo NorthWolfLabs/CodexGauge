@@ -67,7 +67,7 @@ enum StatusItemSymbolRenderer {
 }
 
 @MainActor
-final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidation {
+final class StatusItemController: NSObject, NSPopoverDelegate {
     private let state: AppState
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
@@ -314,7 +314,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Dashboard…", action: #selector(showDashboard), keyEquivalent: "d").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
-        addUpdateItem(to: menu)
         let helpItem = menu.addItem(withTitle: "CodexGauge Help", action: #selector(showHelp), keyEquivalent: "?")
         helpItem.keyEquivalentModifierMask = [.command]
         helpItem.target = self
@@ -328,7 +327,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         let menu = NSMenu()
         menu.addItem(withTitle: "Open Dashboard…", action: #selector(showDashboard), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: "").target = self
-        addUpdateItem(to: menu)
         menu.addItem(withTitle: "CodexGauge Help", action: #selector(showHelp), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Open ChatGPT", action: #selector(openChatGPT), keyEquivalent: "").target = self
         menu.addItem(.separator())
@@ -348,20 +346,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
                 in: nil
             )
         }
-    }
-
-    private func addUpdateItem(to menu: NSMenu) {
-        guard AppUpdater.shared.isAvailable else { return }
-        menu.addItem(withTitle: "Check for Updates…", action: #selector(checkForAppUpdates), keyEquivalent: "").target = self
-    }
-
-    @objc private func checkForAppUpdates() {
-        popover.performClose(nil)
-        AppUpdater.shared.checkForUpdates()
-    }
-
-    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        menuItem.action == #selector(checkForAppUpdates) ? AppUpdater.shared.canCheckForUpdates : true
     }
 
     @objc private func showSettings() {
@@ -464,7 +448,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate, NSMenuItemValidat
         mainMenu.addItem(applicationItem)
 
         applicationMenu.addItem(withTitle: "About \(AppIdentity.current.displayName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "").target = NSApplication.shared
-        addUpdateItem(to: applicationMenu)
         applicationMenu.addItem(.separator())
         applicationMenu.addItem(withTitle: "Settings…", action: #selector(showSettings), keyEquivalent: ",").target = self
         applicationMenu.addItem(.separator())

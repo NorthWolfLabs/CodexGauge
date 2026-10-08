@@ -30,6 +30,7 @@ struct SettingsView: View {
             case .general: general
             case .menuBar: menuBar
             case .notifications: notifications
+            case .devices: CompanionSettingsView(publisher: state.companion)
             }
         }
         .frame(width: 600, height: 430)
@@ -37,20 +38,6 @@ struct SettingsView: View {
 
     private var general: some View {
         Form {
-            CompanionSettingsView(publisher: state.companion)
-            if AppUpdater.shared.isAvailable {
-                Section("App updates") {
-                    Toggle("Automatically check for updates", isOn: Binding(
-                        get: { AppUpdater.shared.automaticallyChecksForUpdates },
-                        set: { AppUpdater.shared.automaticallyChecksForUpdates = $0 }
-                    ))
-                    Button("Check for Updates…") { AppUpdater.shared.checkForUpdates() }
-                        .disabled(!AppUpdater.shared.canCheckForUpdates)
-                    if let error = AppUpdater.shared.errorMessage {
-                        Text(error).font(.caption).foregroundStyle(.red)
-                    }
-                }
-            }
             Section("Startup") {
                 Toggle("Launch CodexGauge at login", isOn: Binding(
                     get: { settings.launchAtLogin },

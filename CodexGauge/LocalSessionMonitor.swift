@@ -9,6 +9,20 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         let modelCallCount: Int
     }
 
+    private struct LifecycleRange: Sendable {
+        var cursor: UInt64
+        let lowerBound: UInt64
+        var suffix = Data()
+    }
+
+    private struct LifecycleRecovery: Sendable {
+        // Newer skipped regions are searched before unfinished older regions.
+        // A later large append must not discard a search for the current start.
+        var ranges: [LifecycleRange]
+        let fallbackStart: Date?
+        let fallbackDuration: TimeInterval?
+    }
+
     private struct Session: Sendable {
         let path: String
         var fileModificationDate = Date.distantPast
@@ -37,6 +51,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         var attentionEventAt: Date?
         var activity: ConversationActivity = .waiting
         var workObservedAfterLifecycle = false
+        var lifecycleRecovery: LifecycleRecovery?
         var pendingTools: [String: ConversationActivity] = [:]
         var inputCallID: String?
         var pulses: [TokenPulse] = []
@@ -81,6 +96,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     private static let maximumFilesPerPass = maximumTrackedSessions
     private static let maximumBytesPerPass = 16 * 1_024 * 1_024
     private static let maximumBytesPerFile = 4 * 1_024 * 1_024
+    private static let maximumLifecycleRecoveryBytes = 16 * 1_024 * 1_024
     private static let maximumDiscoveryEntries = 5_000
     private static let maximumDiscoveryDepth = 6
     private static let maximumRecordsPerParse = 10_000
@@ -192,6 +208,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         }
         shouldEmitSnapshot = processPendingSessions() || shouldEmitSnapshot
         shouldEmitSnapshot = processLiveSessions() || shouldEmitSnapshot
+        shouldEmitSnapshot = processLifecycleRecoveries() || shouldEmitSnapshot
         if maintenanceTick.isMultiple(of: 60) {
             processTrackedSessions(maximumFiles: 20)
             shouldEmitSnapshot = true
@@ -487,6 +504,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
 
         if fileSize < session.offset {
             session.offset = 0
+            session.lifecycleRecovery = nil
             session.remainder.removeAll(keepingCapacity: true)
             session.pulses.removeAll()
             session.totalTokens = 0
@@ -535,6 +553,9 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
 
                 let tailRead = maximumRead - UInt64(bytesRead)
                 let tailOffset = fileSize - tailRead
+                // Header lifecycle belongs to the first turn, not the live tail.
+                // Recover only bounded lifecycle records from the skipped gap.
+                bytesRead += try recoverLifecycle(before: tailOffset, after: session.offset, handle: handle, session: &session)
                 try handle.seek(toOffset: tailOffset)
                 if var tail = try handle.read(upToCount: Int(tailRead)), !tail.isEmpty {
                     bytesRead += tail.count
@@ -569,7 +590,8 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                 guard var tail = try handle.read(upToCount: Int(maximumRead)), !tail.isEmpty else {
                     return 0
                 }
-                let bytesRead = tail.count
+                let recoveryBytes = try recoverLifecycle(before: tailOffset, after: session.offset, handle: handle, session: &session)
+                let bytesRead = tail.count + recoveryBytes
                 if !startsAtRecordBoundary {
                     guard let firstNewline = tail.firstIndex(of: 0x0A) else {
                         // The bounded tail is entirely inside one oversized record.
@@ -602,6 +624,119 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         }
     }
 
+    /// Hide elapsed while skipped lifecycle records are unknown. Preserve the
+    /// last proven clock and any unfinished search: a gap with no newer marker
+    /// cannot invalidate a start already observed before that gap.
+    private func recoverLifecycle(before end: UInt64, after lowerBound: UInt64,
+                                  handle: FileHandle, session: inout Session) throws -> Int {
+        let previous = session.lifecycleRecovery
+        let fallbackStart = previous?.fallbackStart ?? session.turnStartedAt
+        let fallbackDuration = previous?.fallbackDuration ?? session.lastTurnDurationSeconds
+        session.turnStartedAt = nil
+        session.lastTurnDurationSeconds = nil
+        session.latestCallUsage = nil
+        session.contextWindow = nil
+        session.latestOutput = nil
+        session.latestLatency = nil
+        session.pendingTools.removeAll()
+        session.inputCallID = nil
+        session.attentionEventAt = nil
+        session.completionEventAt = nil
+        session.workObservedAfterLifecycle = false
+        session.explicitState = .recent
+        session.activity = .unknown
+        session.lifecycleRecovery = nil
+        guard lockedIDs.contains(session.id), end > lowerBound else { return 0 }
+        var recovery = LifecycleRecovery(ranges: [LifecycleRange(cursor: end, lowerBound: lowerBound)] + (previous?.ranges ?? []),
+                                         fallbackStart: fallbackStart, fallbackDuration: fallbackDuration)
+        // Bound retained search fragments even if large appends outpace recovery.
+        // The intervening tails contained no lifecycle marker (one would have
+        // cancelled recovery), so the oldest two ranges may be searched together.
+        while recovery.ranges.count > 8 {
+            let older = recovery.ranges.removeLast()
+            let newer = recovery.ranges.removeLast()
+            recovery.ranges.append(LifecycleRange(cursor: newer.cursor, lowerBound: older.lowerBound, suffix: newer.suffix))
+        }
+        let result = try searchLifecycle(&recovery, handle: handle, byteBudget: Self.maximumLifecycleRecoveryBytes)
+        if let marker = result.marker { apply(marker, to: &session) }
+        else if recovery.ranges.isEmpty {
+            session.turnStartedAt = recovery.fallbackStart
+            session.lastTurnDurationSeconds = recovery.fallbackDuration
+        } else { session.lifecycleRecovery = recovery }
+        return result.bytesRead
+    }
+
+    private func searchLifecycle(_ recovery: inout LifecycleRecovery, handle: FileHandle,
+                                 byteBudget: Int) throws -> (marker: RolloutEnvelope?, bytesRead: Int) {
+        var read = 0
+        while read < byteBudget, var range = recovery.ranges.first {
+            let count = min(1024 * 1024, byteBudget - read)
+            let start = max(range.lowerBound, range.cursor > UInt64(count) ? range.cursor - UInt64(count) : 0)
+            var boundary = start == 0
+            if start > 0 {
+                try handle.seek(toOffset: start - 1)
+                boundary = try handle.read(upToCount: 1)?.first == 0x0A
+            }
+            try handle.seek(toOffset: start)
+            guard var chunk = try handle.read(upToCount: Int(range.cursor - start)), !chunk.isEmpty else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            read += chunk.count; chunk.append(range.suffix)
+            let lines = chunk.split(separator: 0x0A, omittingEmptySubsequences: false)
+            // Include the first line when aligned with a record boundary. In
+            // particular, a new task may start at the previous file offset.
+            let completeLines = boundary ? lines[...] : lines.dropFirst()
+            for line in completeLines.reversed() where line.count <= 4096 {
+                guard line.contains(0x74), // 't': cheap rejection for empty lines
+                      let event = try? Self.decoder.decode(RolloutEnvelope.self, from: Data(line)),
+                      event.type == "event_msg",
+                      Self.lifecycleTypes.contains(event.payload.type ?? "") else { continue }
+                recovery.ranges.removeAll()
+                return (event, read)
+            }
+            if start > range.lowerBound {
+                range.suffix = boundary ? Data() : lines.first.map { $0.count <= 4096 ? Data($0) : Data() } ?? Data()
+                range.cursor = start
+                recovery.ranges[0] = range
+            } else { recovery.ranges.removeFirst() }
+        }
+        return (nil, read)
+    }
+
+    private static let lifecycleTypes = ["task_started", "turn_started", "task_complete", "task_completed", "turn_complete", "turn_completed", "turn_aborted", "task_aborted"]
+
+    /// At most four 1 MiB reads per tick. Recovery has a fixed file boundary,
+    /// and never replays old phase/token records over freshly observed activity.
+    private func processLifecycleRecoveries() -> Bool {
+        var changed = false
+        for path in sessions.keys.sorted().filter({ sessions[$0]?.lifecycleRecovery != nil }).prefix(4) {
+            guard var session = sessions[path], var recovery = session.lifecycleRecovery else { continue }
+            guard lockedIDs.contains(session.id), let relative = relativeSessionPath(for: path),
+                  let descriptor = AnchoredFileAccess.openRegularFile(relativePath: relative, directoryDescriptor: sessionsRootDescriptor) else {
+                session.lifecycleRecovery = nil; sessions[path] = session; continue
+            }
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            defer { try? handle.close() }
+            do {
+                let result = try searchLifecycle(&recovery, handle: handle, byteBudget: 1024 * 1024)
+                if let marker = result.marker {
+                    if ["task_started", "turn_started"].contains(marker.payload.type ?? "") {
+                        session.turnStartedAt = marker.payload.startedAt ?? marker.timestamp ?? marker.payload.timestamp
+                        changed = true
+                    }
+                    session.lifecycleRecovery = nil
+                } else if recovery.ranges.isEmpty {
+                    session.turnStartedAt = recovery.fallbackStart
+                    session.lastTurnDurationSeconds = recovery.fallbackDuration
+                    session.lifecycleRecovery = nil
+                    changed = true
+                } else { session.lifecycleRecovery = recovery }
+            } catch { session.lifecycleRecovery = nil }
+            sessions[path] = session
+        }
+        return changed
+    }
+
     private func parseLines(into session: inout Session) {
         var processedRecords = 0
         while processedRecords < Self.maximumRecordsPerParse,
@@ -631,6 +766,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
     private func apply(_ envelope: RolloutEnvelope, to session: inout Session) {
         let payload = envelope.payload
         let timestamp = envelope.timestamp ?? payload.timestamp ?? clock.now
+        if Self.lifecycleTypes.contains(payload.type ?? "") { session.lifecycleRecovery = nil }
 
         switch envelope.type {
         case "session_meta":
@@ -657,7 +793,7 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
                 session.lastTurnDurationSeconds = nil
                 session.latestCallUsage = nil
                 session.contextWindow = payload.modelContextWindow
-            case "task_complete", "task_completed", "turn_complete", "turn_completed":
+            case "task_complete", "task_completed", "turn_complete", "turn_completed", "turn_aborted", "task_aborted":
                 session.completionEventAt = timestamp
                 session.pendingTools.removeAll()
                 session.inputCallID = nil
@@ -791,17 +927,28 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
 
         var byID: [String: Session] = [:]
         for session in values where !session.id.isEmpty {
-            if let existing = byID[session.id], existing.lastActivity >= session.lastActivity { continue }
+            if let existing = byID[session.id] {
+                if existing.lastActivity > session.lastActivity { continue }
+                if existing.lastActivity == session.lastActivity {
+                    if existing.fileModificationDate > session.fileModificationDate { continue }
+                    if existing.fileModificationDate == session.fileModificationDate,
+                       existing.path < session.path { continue }
+                }
+            }
             byID[session.id] = session
         }
+        // A resumed thread can have multiple rollout files with the same metadata
+        // ID. Use one selected record for both visible roots and agent links, so
+        // an older copy cannot create a second card or a stale parent relation.
+        let uniqueSessions = Array(byID.values) + values.filter { $0.id.isEmpty }
         var childIDs: [String: [String]] = [:]
-        for session in values {
+        for session in uniqueSessions {
             if let parent = session.parentID, byID[parent] != nil {
                 childIDs[parent, default: []].append(session.id)
             }
         }
 
-        let roots = values.filter { session in
+        let roots = uniqueSessions.filter { session in
             guard let parent = session.parentID else { return true }
             return byID[parent] == nil
         }
@@ -1018,8 +1165,12 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
             .appending(path: String(format: "%02d", month), directoryHint: .isDirectory)
             .appending(path: String(format: "%02d", day), directoryHint: .isDirectory)
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory.path),
-              let name = names.first(where: {
-                  $0.hasPrefix("rollout-") && $0.hasSuffix("-\(id).jsonl")
+              let name = names.filter({
+                  $0.hasPrefix("rollout-") && $0.hasSuffix(".jsonl") && Self.threadID(from: $0) == id
+              }).max(by: {
+                  let lhs = (try? directory.appending(path: $0).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                  let rhs = (try? directory.appending(path: $1).resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                  return lhs < rhs
               }) else { return nil }
         return directory.appending(path: name).path
     }
@@ -1079,9 +1230,12 @@ actor LocalSessionMonitor: SessionTelemetryProviding {
         titles = titles.filter { retainedIDs.contains($0.key) }
     }
 
-    private static func threadID(from filename: String) -> String {
+    static func threadID(from filename: String) -> String {
         let base = URL(fileURLWithPath: filename).deletingPathExtension().lastPathComponent
-        let pieces = base.split(separator: "-")
+        // Resumed desktop rollouts append an internal writer UUID after `_`.
+        // The first UUID is the canonical chat ID used by its writer lock.
+        let canonical = base.split(separator: "_", maxSplits: 1).first ?? Substring(base)
+        let pieces = canonical.split(separator: "-")
         guard pieces.count >= 10 else { return base }
         return pieces.suffix(5).joined(separator: "-")
     }

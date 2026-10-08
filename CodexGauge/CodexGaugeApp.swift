@@ -44,17 +44,17 @@ final class CodexGaugeAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
         notificationDelegate.configure()
-        AppUpdater.shared.start()
         statusItemController = StatusItemController(state: state)
         NSWorkspace.shared.notificationCenter.addObserver(
             wakeRelay, selector: #selector(MainActorNotificationRelay.receive(_:)),
             name: NSWorkspace.didWakeNotification, object: nil
         )
         let arguments = ProcessInfo.processInfo.arguments
-        #if DEBUG && STORE_BUILD
+        #if DEBUG && STORE_PREVIEW_VERIFICATION
         SandboxRuntimeVerification.start(state)
         #endif
         #if DEBUG
+        SandboxMigrationVerification.start(state)
         if arguments.contains("-showNotificationsSettings") {
             statusItemController?.showNotificationPreferencesForDevelopment()
         }

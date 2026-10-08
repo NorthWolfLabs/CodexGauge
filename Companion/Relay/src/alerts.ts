@@ -2,6 +2,20 @@ import type { Snapshot } from './protocol';
 export type AlertKind = 'low' | 'allowance' | 'banked' | 'working' | 'attention' | 'completed';
 export interface AlertEvent { id: string; kind: AlertKind; title: string; body: string; at: number; macID: string; taskID?: string }
 
+// Store an alert baseline only when a transition can affect a notification.
+// Percent/rate/history ticks do not require a new durable observation.
+export function accountAlertSignature(account: Snapshot['account']): string {
+  return JSON.stringify(account && { id: account.id, banked: account.bankedResets,
+    windows: account.windows.map(w => [w.id, w.remainingPercent <= 10, w.resetsAt]) });
+}
+export function notificationSignature(snapshot: Snapshot): string {
+  return JSON.stringify([accountAlertSignature(snapshot.account), snapshot.tasks.map(t => [t.id, t.state, t.eventAt, t.startedAt])]);
+}
+export function compactSnapshot(snapshot: Snapshot): Snapshot {
+  return { ...snapshot, account: snapshot.account && { ...snapshot.account, dailyTokens: [], metrics: undefined, credits: undefined },
+    tasks: snapshot.tasks.map(t => ({ ...t, metrics: t.metrics && { contextIncludesAgent: t.metrics.contextIncludesAgent } })) };
+}
+
 // Persist immediately for alert-relevant changes, otherwise checkpoint at 30 s.
 // Token-rate ticks still stream live without a database write for every frame.
 export function alertSignature(snapshot: Snapshot): string {
@@ -51,7 +65,7 @@ export function changes(before: Snapshot | undefined, after: Snapshot): AlertEve
     }
     if (a.bankedResets != null && b.bankedResets != null && b.bankedResets > a.bankedResets) {
       // Same count transition observed by several Macs uses a shared account key.
-      event(`banked:${b.id}:${a.bankedResets}:${b.bankedResets}:${b.observedAt}`, 'banked', 'Banked reset added', `+${b.bankedResets - a.bankedResets} · ${b.bankedResets} available`);
+      event(`banked:${b.id}:${a.bankedResets}:${b.bankedResets}:${b.observedAt}`, 'banked', 'Limit reset added', `+${b.bankedResets - a.bankedResets} · ${b.bankedResets} available`);
     }
   }
   return result;

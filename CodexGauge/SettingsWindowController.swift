@@ -6,12 +6,14 @@ enum SettingsPane: String, CaseIterable {
     case general
     case menuBar
     case notifications
+    case devices
 
     var title: String {
         switch self {
         case .general: "General"
         case .menuBar: "Menu Bar"
         case .notifications: "Notifications"
+        case .devices: "Devices"
         }
     }
 
@@ -20,6 +22,7 @@ enum SettingsPane: String, CaseIterable {
         case .general: "gear"
         case .menuBar: "menubar.rectangle"
         case .notifications: "bell"
+        case .devices: "laptopcomputer.and.iphone"
         }
     }
 

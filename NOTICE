@@ -4,5 +4,3 @@ Copyright 2026 North Wolf Labs LLC
 Licensed under the Apache License, Version 2.0. See LICENSE for details.
 
 Codex, ChatGPT, OpenAI, Apple, macOS, and Xcode are trademarks of their respective owners. CodexGauge is an independent project and is not endorsed by OpenAI or Apple.
-
-The Mac app bundles Sparkle 2.10.0 (https://sparkle-project.org). Its license and bundled third-party notices are included in CodexGauge/Licenses/Sparkle.txt and the app resources.

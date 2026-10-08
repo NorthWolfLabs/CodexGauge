@@ -7,6 +7,14 @@ import Security
 import Testing
 @testable import CodexGauge
 
+@Test(arguments: [("62500.0000000000", "62500"), ("123.456789", "123.4568"),
+                  ("1.2300000000", "1.23"), ("9.99999", "10")])
+func creditSnapshotDisplaysRoundedBalance(_ input: String, _ expected: String) {
+    let credit = CreditSnapshot(hasCredits: true, unlimited: false, balance: input)
+    #expect(credit.displayBalance == expected)
+    #expect(credit.balance == input)
+}
+
 
 private func testHostHasTeamSignature() -> Bool {
     guard let executableURL = Bundle.main.executableURL else { return false }
@@ -1007,32 +1015,9 @@ struct CodexGaugeTests {
         let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
-        let executable = temporary.appending(path: "fake-codex")
-        let script = #"""
-        #!/bin/sh
-        while IFS= read -r line; do
-          id=$(printf '%s' "$line" | sed -E 's/.*"id"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/')
-          case "$line" in
-            *initialize*)
-              if [ "$id" != "$line" ]; then
-                printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2"}}\n' "$id"
-              fi
-              ;;
-            *rateLimits*read*)
-              printf '{"jsonrpc":"2.0","id":%s,"result":{"rateLimits":{"limitId":"codex","limitName":"Codex","planType":"pro","primary":{"usedPercent":42,"windowDurationMins":300,"resetsAt":2000000000}}}}\n' "$id"
-              ;;
-            *usage*read*)
-              printf '{"jsonrpc":"2.0","id":%s,"result":{"summary":{"lifetimeTokens":1234},"dailyUsageBuckets":[]}}\n' "$id"
-              ;;
-            *account*read*)
-              printf 'account request received\n' >&2
-              printf '{"jsonrpc":"2.0","id":%s,"result":{"account":{"type":"chatgpt","planType":"pro","email":"discard@example.test"},"requiresOpenaiAuth":true}}\n' "$id"
-              ;;
-          esac
-        done
-        """#
-        try Data(script.utf8).write(to: executable)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        let bundle = try #require(Bundle.allBundles.first { $0.bundleURL.pathExtension == "xctest" })
+        let fixture = try #require(bundle.url(forResource: "CodexGaugeTestPeer", withExtension: nil))
+        let executable = fixture
 
         let client = CodexAppServerClient(
             executableURL: executable,
@@ -1330,6 +1315,39 @@ struct CodexGaugeTests {
         ) == nil)
     }
 
+    @Test func skippedRolloutRecoversCurrentTurnInsteadOfFirstTurnClock() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = temporary.appending(path: "sessions/2026/08/21")
+        let locks = temporary.appending(path: "thread-writer-locks")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: locks, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let id = "01a025ed-8084-7551-9e8d-7288c78518ce"
+        let epoch = Date.now.timeIntervalSince1970
+        let current = epoch - 3600
+        let lines = [
+            "{\"timestamp\":\(epoch - 188 * 3600),\"type\":\"session_meta\",\"payload\":{\"id\":\"\(id)\",\"cwd\":\"/tmp/Fixture\"}}",
+            "{\"timestamp\":\(epoch - 188 * 3600),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}",
+            String(repeating: "x", count: 6 * 1024 * 1024),
+            "{\"timestamp\":\(current),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"started_at\":\(current),\"model_context_window\":100000}}",
+            String(repeating: "y", count: 10 * 1024 * 1024),
+            "{\"timestamp\":\(epoch - 1),\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\"}}"
+        ]
+        let file = directory.appending(path: "rollout-2026-08-21T20-05-17-\(id).jsonl")
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
+        let lock = locks.appending(path: "\(id).lock")
+        FileManager.default.createFile(atPath: lock.path, contents: Data())
+        let descriptor = open(lock.path, O_RDONLY | O_CLOEXEC)
+        defer { flock(descriptor, LOCK_UN); close(descriptor) }
+        #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+        let monitor = LocalSessionMonitor(codexHomeURL: temporary, clock: FixedClock(now: Date(timeIntervalSince1970: epoch)))
+        let stream = await monitor.snapshots(); var iterator = stream.makeAsyncIterator()
+        let task = await iterator.next()?.first; await monitor.stop()
+        #expect(task?.state == .running)
+        #expect(task?.activity == .thinking)
+        #expect(task?.turnStartedAt == Date(timeIntervalSince1970: current))
+    }
+
     @Test func lockedLargeRolloutRemainsLiveWhenBoundedTailStartsAfterTaskStart() async throws {
         let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
         let sessionDirectory = temporary.appending(path: "sessions/2026/08/21", directoryHint: .isDirectory)
@@ -1344,7 +1362,7 @@ struct CodexGaugeTests {
             #"{"timestamp":"2026-08-21T20:06:00.000Z","type":"event_msg","payload":{"type":"task_complete"}}"#,
             String(repeating: "x", count: 6 * 1_024 * 1_024),
             #"{"timestamp":"2026-08-29T11:59:00.000Z","type":"event_msg","payload":{"type":"task_started"}}"#,
-            String(repeating: "y", count: 18 * 1_024 * 1_024),
+            String(repeating: "y", count: 24 * 1_024 * 1_024),
             #"{"timestamp":"2026-08-29T12:00:00.000Z","type":"response_item","payload":{"type":"reasoning"}}"#
         ]
         let file = sessionDirectory.appending(path: "rollout-2026-08-21T20-05-17-\(id).jsonl")
@@ -1375,6 +1393,7 @@ struct CodexGaugeTests {
         #expect(result?.first?.id == id)
         #expect(result?.first?.state == .running)
         #expect(result?.first?.activity == .thinking)
+        #expect(result?.first?.turnStartedAt == nil, "Start outside recovery budget must not reuse old clock")
     }
 
     @Test func localSessionMonitorSkipsOversizedContentAndIgnoresPropertyOrder() async throws {
@@ -1683,7 +1702,10 @@ extension CodexGaugeTests {
         let outputA = #"{"type":"function_call_output","call_id":"a","output":"private result"}"#
         let outputB = #"{"type":"function_call_output","call_id":"b","output":"private result"}"#
         #expect(try await observedRollout([start, first, second, outputA]).activity == .usingTool)
-        #expect(try await observedRollout([start, first, second, outputA, outputB]).activity == .unknown)
+        let betweenObservations = try await observedRollout([start, first, second, outputA, outputB])
+        #expect(betweenObservations.activity == .unknown)
+        #expect(betweenObservations.activityTitle == "Working")
+        #expect((try await observedRollout([start, first, second, outputA])).activityTitle == "Using a tool")
         let input = #"{"type":"function_call","name":"request_user_input","namespace":"functions","call_id":"question","arguments":"private"}"#
         let waiting = try await observedRollout([start, first, input, outputA], age: 600)
         #expect(waiting.state == .needsInput)
@@ -1691,6 +1713,8 @@ extension CodexGaugeTests {
         let answered = try await observedRollout([start, input, #"{"type":"function_call_output","call_id":"question","output":"private reply"}"#])
         #expect(answered.state == .running)
         #expect(answered.activity == .unknown)
+        #expect(answered.activityTitle == "Working")
+        #expect(answered.activitySymbol == "waveform")
         let misleading = try await observedRollout([start, #"{"type":"message","role":"user","content":[]}"#])
         #expect(misleading.activity == .starting)
         let history = try await observedRollout([start, #"{"type":"context_compaction","encrypted_content":"ignored"}"#])
@@ -1699,6 +1723,100 @@ extension CodexGaugeTests {
 }
 
 extension CodexGaugeTests {
+    @Test(arguments: [false, true])
+    func duplicateRootRolloutsPublishOnlyTheNewestThread(complete: Bool) async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = temporary.appending(path: "sessions/2026/10/04")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let epoch = Date.now.timeIntervalSince1970
+        let id = "11111111-2222-4333-8444-555555555555"
+        let other = "21111111-2222-4333-8444-555555555555"
+        try writeDuplicateTaskFixture(directory: directory, filename: "older", id: id,
+                                      date: epoch, tokens: 30, complete: !complete)
+        try writeDuplicateTaskFixture(directory: directory, filename: "resumed", id: id,
+                                      date: epoch + 10, tokens: 100, complete: complete)
+        // Same title/workspace is not proof of duplicate identity.
+        try writeDuplicateTaskFixture(directory: directory, filename: "other", id: other,
+                                      date: epoch + 5, tokens: 200)
+        let monitor = LocalSessionMonitor(codexHomeURL: temporary,
+            clock: FixedClock(now: Date(timeIntervalSince1970: epoch + 30)), watchesFilesystemEvents: false)
+        let stream = await monitor.snapshots(); var iterator = stream.makeAsyncIterator()
+        let tasks = try #require(await iterator.next()); await monitor.stop()
+        #expect(tasks.count == 2)
+        #expect(Set(tasks.map(\.id)).count == tasks.count)
+        #expect(tasks.filter { $0.id == id }.count == 1)
+        let task = try #require(tasks.first { $0.id == id })
+        #expect(task.totalTokens == 100)
+        #expect(task.state == (complete ? .recent : .running))
+        #expect(task.agentCount == 0)
+        #expect(tasks.first { $0.id == other }?.totalTokens == 200)
+        #expect(Set(tasks.map(\.title)).count == 1)
+    }
+
+    @Test func duplicateAgentRolloutsUseOnlyTheSelectedParentAndMetrics() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = temporary.appending(path: "sessions/2026/10/04")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let epoch = Date.now.timeIntervalSince1970
+        let root = "11111111-2222-4333-8444-555555555555"
+        let child = "21111111-2222-4333-8444-555555555555"
+        try writeDuplicateTaskFixture(directory: directory, filename: "root", id: root,
+                                      date: epoch, tokens: 100)
+        try writeDuplicateTaskFixture(directory: directory, filename: "child-old", id: child,
+                                      date: epoch + 5, tokens: 50)
+        try writeDuplicateTaskFixture(directory: directory, filename: "child-new", id: child,
+                                      parent: root, date: epoch + 10, tokens: 200)
+        let monitor = LocalSessionMonitor(codexHomeURL: temporary,
+            clock: FixedClock(now: Date(timeIntervalSince1970: epoch + 30)), watchesFilesystemEvents: false)
+        let stream = await monitor.snapshots(); var iterator = stream.makeAsyncIterator()
+        let tasks = try #require(await iterator.next()); await monitor.stop()
+        #expect(tasks.count == 1)
+        #expect(tasks.first?.id == root)
+        #expect(tasks.first?.totalTokens == 300)
+        #expect(tasks.first?.agentCount == 1)
+    }
+
+    @Test func duplicateRolloutTimestampTiesPreferTheNewestFile() async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = temporary.appending(path: "sessions/2026/10/04")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let epoch = Date.now.timeIntervalSince1970
+        let id = "11111111-2222-4333-8444-555555555555"
+        for (name, tokens, modified) in [("a-old", 30, epoch), ("z-new", 100, epoch + 10)] {
+            let file = try writeDuplicateTaskFixture(directory: directory, filename: name, id: id,
+                                                    date: epoch, tokens: tokens)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: modified)],
+                                                 ofItemAtPath: file.path)
+        }
+        let monitor = LocalSessionMonitor(codexHomeURL: temporary,
+            clock: FixedClock(now: Date(timeIntervalSince1970: epoch + 30)), watchesFilesystemEvents: false)
+        let stream = await monitor.snapshots(); var iterator = stream.makeAsyncIterator()
+        let tasks = try #require(await iterator.next()); await monitor.stop()
+        #expect(tasks.count == 1)
+        #expect(tasks.first?.totalTokens == 100)
+    }
+
+    @discardableResult
+    private func writeDuplicateTaskFixture(directory: URL, filename: String, id: String,
+        parent: String? = nil, date: Double, tokens: Int, complete: Bool = false) throws -> URL {
+        let parentJSON = parent.map { ",\"parent_thread_id\":\"\($0)\"" } ?? ""
+        let usage = "{\"input_tokens\":\(tokens - 10),\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":10,\"reasoning_output_tokens\":0,\"total_tokens\":\(tokens)}"
+        var records = [
+            "{\"timestamp\":\(date),\"type\":\"session_meta\",\"payload\":{\"id\":\"\(id)\",\"cwd\":\"/tmp/SameTitle\"\(parentJSON)}}",
+            "{\"timestamp\":\(date + 1),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}",
+            "{\"timestamp\":\(date + 2),\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":\(usage),\"total_token_usage\":\(usage)}}}"
+        ]
+        if complete {
+            records.append("{\"timestamp\":\(date + 3),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\"}}")
+        }
+        let file = directory.appending(path: "\(filename).jsonl")
+        try Data((records.joined(separator: "\n") + "\n").utf8).write(to: file)
+        return file
+    }
+
     @Test func linkedAgentMetricsUseTheSameActiveRepresentative() async throws {
         let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         let directory = temporary.appending(path: "sessions/2026/09/30")
@@ -1770,5 +1888,122 @@ extension CodexGaugeTests {
         #expect(final?.turnStartedAt == nil)
         #expect(final?.activity == .unknown)
         #expect(final?.completionEventAt == nil)
+    }
+}
+
+extension CodexGaugeTests {
+    @Test(arguments: [false, true], [false, true])
+    func largeAppendPreservesCurrentTurnAndPendingLifecycleRecovery(deepInitialHistory: Bool, newStartAtGapBoundary: Bool) async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = temporary.appending(path: "sessions/2026/10/05")
+        let locks = temporary.appending(path: "thread-writer-locks")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: locks, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let epoch = Date.now.timeIntervalSince1970
+        let start = epoch - 3600
+        let id = "01a1078a-55e6-7d50-bdbb-9c74357fd22b"
+        var lines = [
+            "{\"timestamp\":\(start),\"type\":\"session_meta\",\"payload\":{\"id\":\"\(id)\",\"cwd\":\"/tmp/Fixture\"}}"
+        ]
+        if deepInitialHistory { lines.append(String(repeating: "x", count: 6 * 1024 * 1024)) }
+        lines.append("{\"timestamp\":\(start),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}")
+        if deepInitialHistory { lines.append(String(repeating: "y", count: 24 * 1024 * 1024)) }
+        lines.append("{\"timestamp\":\(epoch - 1),\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\"}}")
+        let file = directory.appending(path: "rollout-2026-10-05T08-00-00-\(id).jsonl")
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
+        let lock = locks.appending(path: "\(id).lock")
+        FileManager.default.createFile(atPath: lock.path, contents: Data())
+        let descriptor = open(lock.path, O_RDONLY | O_CLOEXEC)
+        defer { flock(descriptor, LOCK_UN); close(descriptor) }
+        #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+        let monitor = LocalSessionMonitor(codexHomeURL: temporary, clock: FixedClock(now: Date(timeIntervalSince1970: epoch)), maintenanceInterval: .milliseconds(100), watchesFilesystemEvents: false)
+        let stream = await monitor.snapshots(); var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.first?.turnStartedAt == (deepInitialHistory ? nil : Date(timeIntervalSince1970: start)))
+        let handle = try FileHandle(forWritingTo: file); try handle.seekToEnd()
+        // A large tool result forces another live-tail jump while the clock is
+        // known, or while an older skipped region is still being searched.
+        let expectedStart = newStartAtGapBoundary ? epoch - 60 : start
+        let marker = newStartAtGapBoundary ? "{\"timestamp\":\(expectedStart),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}\n" : ""
+        try handle.write(contentsOf: Data((marker + String(repeating: "z", count: 20 * 1024 * 1024) + "\n{\"timestamp\":\(epoch),\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\"}}\n").utf8))
+        try handle.close()
+        try await Task.sleep(for: .seconds(2)); await monitor.stop()
+        var latest = initial
+        while let next = await iterator.next() { latest = next }
+        let task = try #require(latest?.first)
+        #expect(task.state == .running)
+        #expect(task.activity == .thinking)
+        #expect(task.turnStartedAt == Date(timeIntervalSince1970: expectedStart))
+    }
+
+    @Test func resumedRolloutFilenameUsesCanonicalChatIdentity() {
+        let id = "01a1078a-55e6-7d50-bdbb-9c74357fd22b"
+        #expect(LocalSessionMonitor.threadID(from: "rollout-2026-10-04T11-31-22-\(id)_01a1078a-8b31-7112-8d30-065550cb3178.jsonl") == id)
+        #expect(LocalSessionMonitor.threadID(from: "rollout-2026-10-04T11-31-09-\(id).jsonl") == id)
+    }
+    @Test func abortedTurnStopsItsClockAndActivity() async throws {
+        let task = try await observedRollout([#"{"type":"task_started"}"#, #"{"type":"turn_aborted"}"#])
+        #expect(task.state == .recent)
+        #expect(task.activity == .waiting)
+        #expect(task.turnStartedAt == nil)
+        #expect(task.lastTurnDurationSeconds == 1)
+    }
+    @Test(arguments: [false, true])
+    func deepResumedTurnRecoversIncrementallyWithoutOverwritingNewActivity(completeWhileRecovering: Bool) async throws {
+        let temporary = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let directory = temporary.appending(path: "sessions/2026/10/04")
+        let locks = temporary.appending(path: "thread-writer-locks")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: locks, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let epoch = Date.now.timeIntervalSince1970
+        let id = "01a1078a-55e6-7d50-bdbb-9c74357fd22b"
+        let start = epoch - 3600
+        let lines = [
+            "{\"timestamp\":\(epoch - 188 * 3600),\"type\":\"session_meta\",\"payload\":{\"id\":\"\(id)\",\"source\":\"vscode\",\"cwd\":\"/tmp/Fixture\"}}",
+            "{\"timestamp\":\(epoch - 188 * 3600),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}",
+            String(repeating: "x", count: 6 * 1024 * 1024),
+            "{\"timestamp\":\(start),\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\"}}",
+            String(repeating: "y", count: 24 * 1024 * 1024),
+            "{\"timestamp\":\(epoch - 1),\"type\":\"response_item\",\"payload\":{\"type\":\"reasoning\"}}"
+        ]
+        let file = directory.appending(path: "rollout-2026-10-04T11-31-22-\(id)_01a1078a-8b31-7112-8d30-065550cb3178.jsonl")
+        try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: file)
+        let lock = locks.appending(path: "\(id).lock")
+        FileManager.default.createFile(atPath: lock.path, contents: Data())
+        let descriptor = open(lock.path, O_RDONLY | O_CLOEXEC)
+        defer { flock(descriptor, LOCK_UN); close(descriptor) }
+        #expect(flock(descriptor, LOCK_EX | LOCK_NB) == 0)
+        let monitor = LocalSessionMonitor(codexHomeURL: temporary, clock: FixedClock(now: Date(timeIntervalSince1970: epoch)), maintenanceInterval: .milliseconds(10), watchesFilesystemEvents: false)
+        let stream = await monitor.snapshots(); var iterator = stream.makeAsyncIterator()
+        let initial = await iterator.next()
+        #expect(initial?.first?.turnStartedAt == nil)
+        if completeWhileRecovering {
+            let handle = try FileHandle(forWritingTo: file); try handle.seekToEnd()
+            try handle.write(contentsOf: Data("{\"timestamp\":\(epoch),\"type\":\"event_msg\",\"payload\":{\"type\":\"turn_aborted\"}}\n".utf8)); try handle.close()
+        }
+        try await Task.sleep(for: .milliseconds(400)); await monitor.stop()
+        var latest = initial
+        while let next = await iterator.next() { latest = next }
+        let task = try #require(latest?.first)
+        #expect(latest?.count == 1)
+        #expect(task.id == id)
+        #expect(task.state == (completeWhileRecovering ? .recent : .running))
+        #expect(task.activity == (completeWhileRecovering ? .waiting : .thinking))
+        #expect(task.turnStartedAt == (completeWhileRecovering ? nil : Date(timeIntervalSince1970: start)))
+    }
+}
+
+extension CodexGaugeTests {
+    @Test @MainActor func companionDoesNotPublishAnEmptyTaskListDuringStartup() throws {
+        let state = AppState(startImmediately: false)
+        #expect(!state.hasLoadedConversations)
+        #expect(state.companionSnapshotForPublication(installationID: "fixture-installation") == nil)
+        state.hasLoadedConversations = true
+        let ready = try #require(state.companionSnapshotForPublication(installationID: "fixture-installation"))
+        #expect(ready.tasks.isEmpty, "A genuinely loaded empty task list is publishable")
+        state.hasLoadedConversations = false
+        #expect(state.companionSnapshotForPublication(installationID: "fixture-installation") == nil, "Reconnection must not publish a false completion either")
     }
 }

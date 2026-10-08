@@ -12,6 +12,7 @@ struct CompanionHome: View {
     private enum Tab: Hashable { case overview, tasks, activity }
     @Bindable var store: CompanionStore
     @State private var selectedAccountID: String?
+    @State private var selectedActivityScope: CompanionActivityScope?
     @State private var selectedTab = Tab.overview
     @State private var overviewPath: [CompanionTaskSelection] = []
     @State private var taskPath: [CompanionTaskSelection] = []
@@ -21,12 +22,12 @@ struct CompanionHome: View {
     @State private var showsScanner = false
     @State private var scannerError: String?
     @State private var showsPairing = false
-    @State private var linkText = ""
-    @FocusState private var linkFocused: Bool
+    @State private var pairingTask: Task<Void, Never>?
+    @State private var scannedLink: String?
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack(path: $overviewPath) {
-                TimelineView(.periodic(from: .now, by: 15)) { context in
+                TimelineView(.periodic(from: Date(timeIntervalSince1970: 0), by: 15)) { context in
                     List {
                         if store.isPreview { Section { Label("Simulator preview", systemImage: "iphone.gen3") } }
                         if store.accounts.isEmpty {
@@ -39,11 +40,13 @@ struct CompanionHome: View {
                                     description: Text("Keep CodexGauge running and connected to Codex on your Mac. Task updates can arrive before account usage."))
                             }
                         }
-                        accountIdentitySection
+                        accountPickerSection
                         allowanceSections(now: context.date)
                         activeSections(now: context.date, accountID: selectedAccount?.id)
                     }
                 }
+                .contentMargins(.top, 8, for: .scrollContent)
+                .listSectionSpacing(.compact)
                 .navigationTitle("Overview")
                 .navigationDestination(for: CompanionTaskSelection.self) { selection in
                     CompanionTaskDetail(store: store, macID: selection.macID, taskID: selection.taskID, onSettings: { showsSettings = true })
@@ -52,7 +55,7 @@ struct CompanionHome: View {
                 .toolbar { Button("Settings", systemImage: "gearshape") { showsSettings = true } }
             }.tabItem { Label("Overview", systemImage: "gauge.with.needle") }.tag(Tab.overview)
             NavigationStack(path: $taskPath) {
-                TimelineView(.periodic(from: .now, by: 15)) { context in
+                TimelineView(.periodic(from: Date(timeIntervalSince1970: 0), by: 15)) { context in
                     List {
                         activeSections(now: context.date)
                         if store.orderedSnapshots.flatMap(\.activeTasks).isEmpty {
@@ -60,38 +63,43 @@ struct CompanionHome: View {
                                 description: Text("Working tasks and requests for input or approval appear here."))
                         }
                     }
-                }.navigationTitle("Tasks").navigationBarTitleDisplayMode(.inline)
+                }.contentMargins(.top, 8, for: .scrollContent).listSectionSpacing(.compact)
+                .navigationTitle("Tasks").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Settings", systemImage: "gearshape") { showsSettings = true } }
                 .navigationDestination(for: CompanionTaskSelection.self) { selection in
                     CompanionTaskDetail(store: store, macID: selection.macID, taskID: selection.taskID, onSettings: { showsSettings = true })
                 }
             }.tabItem { Label("Tasks", systemImage: "bubble.left.and.bubble.right") }.tag(Tab.tasks)
             NavigationStack {
-                TimelineView(.periodic(from: .now, by: 15)) { context in
+                TimelineView(.periodic(from: Date(timeIntervalSince1970: 0), by: 15)) { context in
                 List {
-                    accountIdentitySection
-                    if let account = selectedAccount {
-                        Section("Token activity") {
+                    activityScopeSection(now: context.date)
+                    if let account = activityAccount {
+                        Section {
                             if let total = account.lifetimeTokens { LabeledContent("Lifetime tokens", value: total.formatted()) }
-                            if showsAllAccounts {
+                            if activityScope?.accountID == CompanionMerge.allAccountsID {
                                 let unknown = store.accounts.filter { !$0.hasVerifiedIdentity }.count
                                 if unknown > 0 { Text("Totals exclude \(unknown) Mac account\(unknown == 1 ? "" : "s") with unverified identity.").font(.footnote).foregroundStyle(.secondary) }
                             }
-                            CompanionAccountChart(account: account)
+                            CompanionAccountChart(account: account).equatable()
                             accountMetrics(account.metrics)
                             if account.historyObservedAt == nil && account.hasHistoryEvidence {
                                 Text("History observation time unavailable").font(.caption).foregroundStyle(.secondary)
                             } else if let observed = account.historyObservedAt, context.date.timeIntervalSince(observed) >= 1800 {
                                 Text("Last known activity · updated \(observed.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary)
                             }
-                        }
+                        } header: { activityHeader(now: context.date) }
                     }
                     if store.accounts.isEmpty { ContentUnavailableView("No activity yet", systemImage: "chart.bar") }
                 }
-                }.navigationTitle("Activity").navigationBarTitleDisplayMode(.inline)
+                }.contentMargins(.top, 8, for: .scrollContent).listSectionSpacing(.compact)
+                .navigationTitle("Activity").navigationBarTitleDisplayMode(.inline)
                 .toolbar { Button("Settings", systemImage: "gearshape") { showsSettings = true } }
             }.tabItem { Label("Activity", systemImage: "chart.xyaxis.line") }.tag(Tab.activity)
 
+        }
+        .onChange(of: activityChoices) { _, choices in
+            selectedActivityScope = CompanionActivityScope.resolve(selectedActivityScope, in: choices)
         }
         .onChange(of: store.accounts.map(\.id)) { _, ids in
             if ids.count <= 1 || (selectedAccountID != nil && selectedAccountID != CompanionMerge.allAccountsID && !ids.contains(selectedAccountID!)) {
@@ -120,13 +128,14 @@ struct CompanionHome: View {
                 selectedTab = .tasks
                 return
             }
-            store.add(url)
+            Task {
+            await store.add(url)
             if store.error != nil {
-                linkText = url.absoluteString
                 showsPairing = true
             } else {
                 overviewPath = []; selectedTab = .overview
-                linkText = ""; showsPairing = false
+                showsPairing = false
+            }
             }
         }
         .alert("Couldn’t unlink Mac", isPresented: Binding(
@@ -141,49 +150,66 @@ struct CompanionHome: View {
         }
     }
     private var pairingView: some View {
-            NavigationStack {
-                Form {
-                    Section {
-                        Button("Scan QR code", systemImage: "qrcode.viewfinder") { Task { await beginScan() } }
-                        if let scannerError { Text(scannerError).font(.footnote).foregroundStyle(.secondary) }
-                    } footer: { Text("On your Mac, open CodexGauge Settings → General → iPhone companion and show the viewing QR code.") }
-                    Section {
-                        if let error = store.error { Text(error).foregroundStyle(.red) }
-                        TextField("Viewing link", text: $linkText, axis: .vertical)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled()
-                            .keyboardType(.URL).focused($linkFocused).privacySensitive()
-                            .accessibilityIdentifier("companion.viewingLink")
-                        PasteButton(payloadType: String.self) { strings in linkText = strings.first ?? "" }
-                    } header: { Text("Or paste a viewing link") }
-                      footer: { Text("Copy a viewing link from the same Mac settings, then paste it here.") }
-                }.navigationTitle("Link a Mac").navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showsPairing = false } }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Link Mac") {
-                                linkFocused = false
-                                guard let url = URL(string: linkText.trimmingCharacters(in: .whitespacesAndNewlines)) else { store.error = "Enter a valid viewing link."; return }
-                                store.add(url)
-                                if store.error == nil { linkText = ""; showsPairing = false }
-                            }.disabled(linkText.isEmpty)
-                        }
-                    }
-            }.presentationDetents([.large])
-                .sheet(isPresented: $showsScanner) {
-                    NavigationStack {
-                        CompanionQRScanner(onError: { message in
-                            scannerError = message; showsScanner = false
-                        }) { code in
-                            showsScanner = false
-                            linkText = code
-                        }.ignoresSafeArea(edges: .bottom)
-                        .navigationTitle("Scan viewing link").navigationBarTitleDisplayMode(.inline)
-                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showsScanner = false } } }
-                    }
+        NavigationStack {
+            Form {
+                Section {
+                    Button("Scan QR code", systemImage: "qrcode.viewfinder") { Task { await beginScan() } }
+                        .disabled(store.isPairing)
+                    PasteButton(payloadType: String.self) { strings in connectPairingLink(strings.first ?? "") }
+                        .labelStyle(.titleAndIcon).disabled(store.isPairing)
+                        .accessibilityLabel("Paste pairing link")
+                        .accessibilityIdentifier("companion.pasteLink")
+                } footer: {
+                    Text("On your Mac, open CodexGauge Settings → Devices → Pair iPhone. Scan the code or copy its link and tap Paste.")
                 }
+                if store.isPairing {
+                    Section { ProgressView("Connecting to Mac…") }
+                }
+                if let error = store.error ?? scannerError {
+                    Section { Text(error).foregroundStyle(.red).lineLimit(nil).fixedSize(horizontal: false, vertical: true) }
+                }
+                Section {
+                    Text("This gives your iPhone read-only access to account email, usage and task names.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Link a Mac").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { pairingTask?.cancel(); showsPairing = false }
+                }
+            }
+        }.presentationDetents([.medium, .large])
+        .sheet(isPresented: $showsScanner, onDismiss: {
+            if let scannedLink { self.scannedLink = nil; connectPairingLink(scannedLink) }
+        }) {
+            NavigationStack {
+                CompanionQRScanner(onError: { message in
+                    scannerError = message; showsScanner = false
+                }) { code in
+                    scannedLink = code; showsScanner = false
+                }.ignoresSafeArea(edges: .bottom)
+                .navigationTitle("Scan pairing code").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showsScanner = false } } }
+            }
+        }
+    }
+    private func connectPairingLink(_ text: String) {
+        guard !store.isPairing else { return }
+        scannerError = nil; store.error = nil
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              (try? CompanionLink(url: url)) != nil else {
+            store.error = "That isn’t a CodexGauge pairing link. Copy a new link from Pair iPhone on your Mac, then tap Paste."; return
+        }
+        pairingTask = Task {
+            await store.add(url)
+            guard !Task.isCancelled else { return }
+            if store.error == nil { showsPairing = false }
+        }
     }
     @MainActor private func beginScan() async {
-        guard DataScannerViewController.isSupported else { scannerError = "QR scanning isn’t available on this device. Paste the viewing link below."; return }
+        store.error = nil
+        guard DataScannerViewController.isSupported else { scannerError = "QR scanning isn’t available on this device. Tap Paste instead."; return }
         var allowed = AVCaptureDevice.authorizationStatus(for: .video) == .authorized
         if AVCaptureDevice.authorizationStatus(for: .video) == .notDetermined { allowed = await AVCaptureDevice.requestAccess(for: .video) }
         guard allowed, DataScannerViewController.isAvailable else { scannerError = "Camera access is unavailable. Allow Camera in iPhone Settings or paste the viewing link."; return }
@@ -213,28 +239,18 @@ struct CompanionHome: View {
                                 Task { await CompanionPush.shared.set(kind, enabled: value) }
                             }))
                         }
-                        if CompanionPush.shared.status != "Enabled" { Text(CompanionPush.shared.status).font(.caption).foregroundStyle(.secondary) }
-                        #if DEBUG
-                        NavigationLink("Live Activity layout preview") { CompanionLivePreview() }
-                        DisclosureGroup("Notification diagnostics") {
-                        Button(CompanionPush.shared.isTesting ? "Sending…" : "Send test notification") {
-                            Task { await CompanionPush.shared.sendTest() }
-                        }.disabled(!CompanionPush.shared.canSendTest)
-                        if let result = CompanionPush.shared.testStatus {
-                            Text(result).font(.caption).foregroundStyle(.secondary)
-                                .accessibilityIdentifier("companion.pushTestResult")
+                        if !CompanionPush.shared.kinds.isEmpty && CompanionPush.shared.status != "Enabled" {
+                            Text(CompanionPush.shared.status).font(.caption).foregroundStyle(.secondary)
                         }
-                        }
-                        #endif
+
                     }
                     Section("Live Activities") {
                         Toggle("Follow active tasks", isOn: Binding(get: { CompanionLiveActivities.shared.enabled }, set: { CompanionLiveActivities.shared.setEnabled($0) }))
-                        Text(CompanionLiveActivities.shared.status).font(.caption).foregroundStyle(.secondary)
                     }
                     Section {
                         Text("Viewing links disclose account email and grant read-only access. They cannot send instructions or approve actions on a Mac.")
                         Text("A Mac must be awake and running CodexGauge to provide fresh data.")
-                        Text("Tasks are observed from local Codex activity. Cloud-only Work chats and live compaction phases aren’t available through this source.")
+                        Text("Shows local Codex tasks. Cloud-only Work chats and live compaction status aren’t available.")
                     }.font(.footnote).foregroundStyle(.secondary)
                 }.navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { showsSettings = false } } }
@@ -255,53 +271,65 @@ struct CompanionHome: View {
     }
     private func selectorLabel(_ account: CompanionAccount) -> String {
         let email = account.email?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let email, !email.isEmpty else { return "\(sourceNames(account)) · \(account.id.suffix(6))" }
+        guard let email, !email.isEmpty else { return "\(account.displayName) · \(account.id.suffix(6))" }
         let repeated = store.accounts.filter { $0.displayName == account.displayName }.count > 1
-        return repeated ? "\(email) · \(sourceNames(account)) · \(account.id.suffix(6))" : email
+        return repeated ? "\(email) · \(account.id.suffix(6))" : email
     }
-    @ViewBuilder private var accountIdentitySection: some View {
-        if let account = selectedAccount {
+    @ViewBuilder private var accountPickerSection: some View {
+        if store.accounts.count > 1, let account = selectedAccount {
             Section {
-                if store.accounts.count > 1 {
-                    Picker("Account", selection: Binding(get: { selectedAccount?.id ?? account.id }, set: { selectedAccountID = $0 })) {
-                        Text("All accounts").tag(CompanionMerge.allAccountsID)
-                        ForEach(store.accounts) { item in Text(selectorLabel(item)).tag(item.id) }
-                    }.pickerStyle(.menu).accessibilityIdentifier("companion.accountSelector")
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(account.id == CompanionMerge.allAccountsID ? "All accounts" : account.displayName).font(.headline).textSelection(.enabled)
-                        .accessibilityIdentifier("companion.accountIdentity")
-                    if !account.detail.isEmpty { Text(account.detail).font(.subheadline).foregroundStyle(.secondary) }
-                    Text(sourceNames(account)).font(.caption).foregroundStyle(.secondary)
-                }.padding(.vertical, 4)
+                Picker("Account", selection: Binding(get: { selectedAccount?.id ?? account.id }, set: { selectedAccountID = $0 })) {
+                    Text("All accounts").tag(CompanionMerge.allAccountsID)
+                    ForEach(store.accounts) { item in Text(selectorLabel(item)).tag(item.id) }
+                }.pickerStyle(.menu).accessibilityIdentifier("companion.accountSelector")
             }
         }
     }
-    @ViewBuilder private func allowanceSections(now: Date) -> some View {
-                        ForEach(showsAllAccounts ? store.accounts : selectedAccount.map { [$0] } ?? []) { account in
-                            Section {
-                                ForEach(account.windows) { window in
-                                    NavigationLink(destination: CompanionLimitsDetail(store: store, accountID: account.id, selectedID: window.id)) {
-                                        AllowanceRow(window: window, now: now)
-                                    }
-                                }
-                            } header: {
-                                Text(showsAllAccounts ? account.displayName : "Allowances")
-                            } footer: {
-                                if account.isStale(at: now) { Text("Last known usage · updated \(account.observedAt.formatted(date: .abbreviated, time: .shortened))") }
-                            }
-                            if account.bankedResets != nil || !(account.credits ?? []).isEmpty {
-                                Section("Account balances") {
-                                if let banked = account.bankedResets { LabeledContent("Banked resets", value: "\(banked)") }
-                                ForEach(account.credits ?? []) { credit in
-                                    LabeledContent((account.credits?.count ?? 0) > 1 ? "\(credit.name) credits" : "Credits available", value: credit.displayBalance)
-                                }
-                                }
-                            }
-                        }
+    private var activityChoices: [CompanionActivityScope] { store.activityChoices }
+    private var activityScope: CompanionActivityScope? { CompanionActivityScope.resolve(selectedActivityScope ?? selectedAccountID.map { .init(accountID: $0, deviceID: nil) }, in: activityChoices) }
+    private var activityAccount: CompanionAccount? { activityScope?.account(in: store.orderedSnapshots) }
+    private func scopeLabel(_ scope: CompanionActivityScope) -> String {
+        scope.label(in: store.orderedSnapshots)
     }
-    private func sourceNames(_ account: CompanionAccount) -> String {
-        store.orderedSnapshots.filter { account.id == CompanionMerge.allAccountsID || $0.account?.id == account.id }.map(\.name).joined(separator: " · ")
+    @ViewBuilder private func activityScopeSection(now: Date) -> some View {
+        if let scope = activityScope, activityChoices.count > 1 {
+            Section {
+                Picker("Account and device", selection: Binding(get: { scope }, set: { selectedActivityScope = $0 })) {
+                    if store.accounts.count > 1 {
+                        Text("All accounts").tag(CompanionActivityScope(accountID: CompanionMerge.allAccountsID, deviceID: nil))
+                    }
+                    ForEach(activityChoices) { item in Text(scopeLabel(item)).tag(item) }
+                }.pickerStyle(.menu).accessibilityIdentifier("companion.activityScopeSelector")
+            }
+        }
+    }
+    @ViewBuilder private func activityHeader(now: Date) -> some View {
+        if let scope = activityScope, let account = activityAccount {
+            let mac = store.snapshots[scope.deviceID ?? ""]
+            CompanionDeviceHeader(name: mac?.name ?? (scope.accountID == CompanionMerge.allAccountsID ? "All devices" : "All devices for this account"), account: account.displayName)
+                .accessibilityIdentifier("companion.activityDevice")
+            if mac?.isStale(at: now) == true { Text("Device offline or no recent update").font(.caption).textCase(nil) }
+        }
+    }
+    @ViewBuilder private func allowanceSections(now: Date) -> some View {
+        ForEach(showsAllAccounts ? store.accounts : selectedAccount.map { [$0] } ?? []) { account in
+            Section {
+                ForEach(account.windows) { window in
+                    NavigationLink(destination: CompanionLimitsDetail(store: store, accountID: account.id, selectedID: window.id)) {
+                        AllowanceRow(window: window, now: now)
+                    }
+                }
+                if let resets = account.bankedResets { LabeledContent("Limit resets", value: "\(resets)") }
+                ForEach(account.credits ?? []) { credit in
+                    LabeledContent((account.credits?.count ?? 0) > 1 ? "\(credit.name) credits" : "Credits available", value: credit.displayBalance)
+                }
+                CompanionAccountIdentity(account: account)
+            } header: {
+                Text("Allowances")
+            } footer: {
+                if account.isStale(at: now) { Text("Last known usage · updated \(account.observedAt.formatted(date: .abbreviated, time: .shortened))") }
+            }
+        }
     }
     @ViewBuilder private func activeSections(now: Date, accountID: String? = nil) -> some View {
         ForEach(store.orderedSnapshots.filter { accountID == nil || accountID == CompanionMerge.allAccountsID || $0.account?.id == accountID }) { mac in
@@ -312,7 +340,10 @@ struct CompanionHome: View {
                             TaskRow(task: task, stale: mac.isStale(at: now) || task.isStale(at: now), snapshotObservedAt: mac.observedAt)
                         }
                     }
-                } header: { Label(mac.name, systemImage: "laptopcomputer") }
+                } header: {
+                    CompanionDeviceHeader(name: mac.name, account: mac.account?.displayName)
+                        .accessibilityIdentifier("companion.taskDevice.\(mac.id)")
+                }
                   footer: { if mac.isStale(at: now) { Text("Mac offline or no recent update · showing last known tasks") } }
             }
         }
@@ -360,7 +391,7 @@ struct CompanionTaskDetail: View {
         if let value { LabeledContent(title, value: value.formatted()) }
     }
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 15)) { context in
+        TimelineView(.periodic(from: Date(timeIntervalSince1970: 0), by: 15)) { context in
             if let mac = store.snapshots[macID], let task = mac.tasks.first(where: { $0.id == taskID }) {
                 List {
                     Section {
@@ -386,17 +417,17 @@ struct CompanionTaskDetail: View {
                     } header: { Text("Statistics") }
                     footer: {
                         if task.metrics?.contextIncludesAgent == true { Text("Phase, model, context and elapsed describe the active linked agent.") }
-                        Text(task.metrics?.tokenTotalsComplete == false ? "Recorded totals and mix are incomplete: some linked tasks have not reported token usage." : "Rates and recorded token totals include linked agents when present.")
+                        Text(task.metrics?.tokenTotalsComplete == false ? "Some linked tasks have no token usage yet; totals are incomplete." : "Includes linked agents.")
                     }
                     Section {
                         CompanionRateChart(samples: store.taskHistory.samples(mac: macID, task: taskID).filter { context.date.timeIntervalSince($0.date) <= 300 },
                             isCollecting: task.state == .running && task.hasRate && !task.isStale(at: context.date) && !mac.isStale(at: context.date))
                     } header: { Text("Tokens per minute") }
-                    footer: { Text("Last five minutes observed while this app is connected. Gaps indicate missing observations.") }
+                    footer: { Text("Last five minutes · gaps show unavailable data.") }
                     if mac.isStale(at: context.date) {
                         Section { Text("Mac offline or no recent update · showing last known task").foregroundStyle(.secondary) }
                     } else if task.isStale(at: context.date) {
-                        Section { Text("Mac connected · no recent task observation. Its last state is retained until a lifecycle event changes it.").font(.footnote).foregroundStyle(.secondary) }
+                        Section { Text("Mac connected · no recent task update. Showing the last known state.").font(.footnote).foregroundStyle(.secondary) }
                     }
                 }
             } else if store.snapshots[macID] == nil && store.links.contains(where: { $0.id == macID }) {
@@ -437,24 +468,31 @@ struct TaskRow: View {
                     }.fixedSize().accessibilityElement(children: .combine)
                 }
             }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { phase; contextAndTime }
-                VStack(alignment: .leading, spacing: 6) { phase; contextAndTime }
+            let metricsLayout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+            metricsLayout {
+                phase
+                HStack(spacing: 12) { contextAndTime }
             }.font(.caption).foregroundStyle(.secondary)
             if !task.hasRate && task.state == .running { Text("No token observation").font(.caption).foregroundStyle(.secondary) }
         }.padding(.vertical, 6)
     }
     private var phase: some View {
         HStack(spacing: 5) {
-            if task.state == .running && !stale { ProgressView().controlSize(.mini).accessibilityHidden(true) }
+            if task.state == .running && !stale { CompanionWorkingIndicator().accessibilityIdentifier("companion.workingIndicator.\(task.id)").accessibilityHidden(true) }
             else { Image(systemName: task.state.symbol).accessibilityHidden(true) }
-            Text(stale ? "Last seen: \(task.state.title.lowercased())" : task.state == .running ? task.activity : task.state.title)
+            Text(stale ? "Last seen: \(task.state.title.lowercased())" : task.state == .running ? task.displayActivity : task.state.title)
                 .foregroundStyle(task.state == .needsApproval || task.state == .needsInput ? Color.orange : Color.secondary)
         }
     }
     @ViewBuilder private var contextAndTime: some View {
         if let value = task.contextPercent {
-            Label("\(Int(value))% \(task.metrics?.contextIncludesAgent == true ? "agent context" : "context")", systemImage: "circle.dashed")
+            HStack(spacing: 4) {
+                Image(systemName: "circle.dashed").accessibilityHidden(true)
+                Text("\(Int(value))% \(task.metrics?.contextIncludesAgent == true ? "agent context" : "context")").monospacedDigit()
+                    .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: false)
+            }.accessibilityElement(children: .combine)
         }
         if let start = task.startedAt {
             if task.state == .completed {
@@ -467,20 +505,49 @@ struct TaskRow: View {
             } else {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
-                    Text(timerInterval: start...Date.distantFuture, countsDown: false).monospacedDigit().fixedSize()
+                    CompanionElapsedClock(start: start).fixedSize()
                 }.accessibilityLabel("Current turn elapsed")
             }
         }
     }
 }
 
+/// A native progress view can stop drawing after its list is detached by a tab
+/// switch. Keep the glyph in SwiftUI and animate only its transform.
+private struct CompanionWorkingIndicator: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var rotating = false
+    var body: some View {
+        Circle().trim(from: 0.12, to: 0.9)
+            .stroke(style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+            .frame(width: 12, height: 12)
+            .rotationEffect(.degrees(rotating && !reduceMotion ? 360 : 0))
+            .animation(reduceMotion ? nil : .linear(duration: 1).repeatForever(autoreverses: false), value: rotating)
+            .onAppear { rotating = true }
+            .onDisappear { rotating = false }
+    }
+}
+
+
+/// Keep the clock's one-second refresh inside its text. In a fitting layout,
+/// the system interval text can continually invalidate the list on iOS 27.
+private struct CompanionElapsedClock: View {
+    let start: Date
+    var body: some View {
+        TimelineView(.periodic(from: Date(timeIntervalSince1970: 0), by: 1)) { context in
+            let elapsed = max(0, context.date.timeIntervalSince(start))
+            Text(Duration.seconds(elapsed).formatted(.time(pattern: elapsed >= 3600 ? .hourMinuteSecond : .minuteSecond)))
+                .monospacedDigit()
+        }
+    }
+}
 
 private struct CompanionLimitsDetail: View {
     @Bindable var store: CompanionStore
     let accountID: String
     let selectedID: String
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 15)) { context in
+        TimelineView(.periodic(from: Date(timeIntervalSince1970: 0), by: 15)) { context in
             List {
                 if let account = store.accounts.first(where: { $0.id == accountID }) {
                     ForEach(account.windows.sorted { ($0.id == selectedID ? 0 : 1) < ($1.id == selectedID ? 0 : 1) }) { window in
@@ -490,10 +557,14 @@ private struct CompanionLimitsDetail: View {
                             if let reset = window.resetsAt { LabeledContent("Next reset", value: reset.formatted(date: .abbreviated, time: .shortened)) }
                         }
                     }
-                    if let banked = account.bankedResets { LabeledContent("Banked resets", value: "\(banked)") }
+                    if let banked = account.bankedResets { LabeledContent("Limit resets", value: "\(banked)") }
                     ForEach(account.credits ?? []) { credit in LabeledContent(credit.name + " credits", value: credit.displayBalance) }
-                    Section { Text("Updated \(account.observedAt.formatted(date: .abbreviated, time: .shortened))").font(.footnote).foregroundStyle(.secondary) }
-                    if account.isStale(at: context.date) { Text("Last known usage. A reset is confirmed only when the Mac receives a fresh observation.").font(.footnote) }
+                    Section {
+                        CompanionAccountIdentity(account: account)
+                    } footer: {
+                        Text("Updated \(account.observedAt.formatted(date: .abbreviated, time: .shortened))")
+                        if account.isStale(at: context.date) { Text("Last known usage · waiting for an update") }
+                    }
                 } else { ContentUnavailableView("Usage unavailable", systemImage: "gauge.with.needle") }
             }
         }.navigationTitle("Limits").navigationBarTitleDisplayMode(.inline)
@@ -504,30 +575,88 @@ private struct CompanionQRScanner: UIViewControllerRepresentable {
     let onError: (String) -> Void
     let onScan: (String) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(onError: onError, onScan: onScan) }
-    func makeUIViewController(context: Context) -> DataScannerViewController {
-        let scanner = DataScannerViewController(recognizedDataTypes: [.barcode(symbologies: [.qr])], qualityLevel: .balanced,
-            recognizesMultipleItems: false, isHighFrameRateTrackingEnabled: false, isGuidanceEnabled: true, isHighlightingEnabled: true)
-        scanner.delegate = context.coordinator
-        do { try scanner.startScanning() } catch {
-            Task { @MainActor in onError("Scanning couldn’t start. Paste the viewing link instead.") }
-        }
-        return scanner
+    func makeUIViewController(context: Context) -> ScannerHost {
+        ScannerHost(coordinator: context.coordinator)
     }
-    func updateUIViewController(_ controller: DataScannerViewController, context: Context) {}
-    static func dismantleUIViewController(_ controller: DataScannerViewController, coordinator: Coordinator) { controller.stopScanning() }
+    func updateUIViewController(_ controller: ScannerHost, context: Context) {}
+    static func dismantleUIViewController(_ controller: ScannerHost, coordinator: Coordinator) {
+        controller.stopScanning()
+    }
+
+    // The representable is created before its sheet joins a window. Let UIKit
+    // finish presenting the scanner before starting its camera and recognition.
+    @MainActor final class ScannerHost: UIViewController {
+        private let scanner = DataScannerViewController(recognizedDataTypes: [.barcode(symbologies: [.qr])], qualityLevel: .balanced,
+            recognizesMultipleItems: false, isHighFrameRateTrackingEnabled: false, isGuidanceEnabled: true, isHighlightingEnabled: true)
+        private let coordinator: Coordinator
+        init(coordinator: Coordinator) {
+            self.coordinator = coordinator
+            super.init(nibName: nil, bundle: nil)
+            scanner.delegate = coordinator
+        }
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            addChild(scanner)
+            scanner.view.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(scanner.view)
+            NSLayoutConstraint.activate([
+                scanner.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                scanner.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                scanner.view.topAnchor.constraint(equalTo: view.topAnchor),
+                scanner.view.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+            ])
+            scanner.didMove(toParent: self)
+            NotificationCenter.default.addObserver(self, selector: #selector(resumeScanning), name: UIApplication.didBecomeActiveNotification, object: nil)
+            NotificationCenter.default.addObserver(self, selector: #selector(stopScanning), name: UIApplication.willResignActiveNotification, object: nil)
+        }
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            resumeScanning()
+        }
+        override func viewWillDisappear(_ animated: Bool) {
+            stopScanning()
+            super.viewWillDisappear(animated)
+        }
+        @objc private func resumeScanning() {
+            guard viewIfLoaded?.window != nil, !coordinator.handled, !scanner.isScanning,
+                  UIApplication.shared.applicationState == .active else { return }
+            do { try scanner.startScanning() }
+            catch { coordinator.fail("Scanning couldn’t start. Paste the viewing link instead.") }
+        }
+        @objc func stopScanning() { scanner.stopScanning() }
+        deinit { NotificationCenter.default.removeObserver(self) }
+    }
     @MainActor final class Coordinator: NSObject, DataScannerViewControllerDelegate {
         let onScan: (String) -> Void
-        var handled = false
+        private(set) var handled = false
         let onError: (String) -> Void
         init(onError: @escaping (String) -> Void, onScan: @escaping (String) -> Void) { self.onError = onError; self.onScan = onScan }
+        func fail(_ message: String) {
+            guard !handled else { return }
+            handled = true
+            onError(message)
+        }
         func dataScanner(_ dataScanner: DataScannerViewController, becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable) {
-            guard !handled else { return }; handled = true; onError("Scanning is unavailable. Paste the viewing link instead.")
+            fail("Scanning is unavailable. Paste the viewing link instead.")
         }
         func dataScanner(_ dataScanner: DataScannerViewController, didAdd addedItems: [RecognizedItem], allItems: [RecognizedItem]) {
+            recognize(allItems, using: dataScanner)
+        }
+        func dataScanner(_ dataScanner: DataScannerViewController, didUpdate updatedItems: [RecognizedItem], allItems: [RecognizedItem]) {
+            recognize(allItems, using: dataScanner)
+        }
+        func dataScanner(_ dataScanner: DataScannerViewController, didTapOn item: RecognizedItem) {
+            recognize([item], using: dataScanner)
+        }
+        private func recognize(_ items: [RecognizedItem], using scanner: DataScannerViewController) {
             guard !handled else { return }
-            for item in addedItems {
-                if case .barcode(let barcode) = item, let code = barcode.payloadStringValue {
-                    handled = true; dataScanner.stopScanning(); onScan(code); return
+            for item in items {
+                if case .barcode(let barcode) = item, let code = barcode.payloadStringValue, !code.isEmpty {
+                    handled = true
+                    scanner.stopScanning()
+                    onScan(code)
+                    return
                 }
             }
         }
@@ -540,38 +669,24 @@ private enum CompanionTime {
     }
 }
 
-#if DEBUG
-private struct CompanionLivePreview: View {
+private struct CompanionAccountIdentity: View {
+    let account: CompanionAccount
     var body: some View {
-        let mac = CompanionFixtures.snapshots()[0]
-        let state = CompanionLiveState.from(mac)
-        let running: CompanionLiveState = {
-            var value = state
-            value.title = "Review cross-platform synchronization and recovery"
-            value.state = "running"
-            value.attention = 0
-            value.running = 2
-            value.startedAt = Date.now.addingTimeInterval(-127).timeIntervalSince1970
-            value.activity = "Using tool"
-            return value
-        }()
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                Text("Synthetic preview · the same card renderer used by ActivityKit. This is not a hardware CarPlay test.").font(.footnote).foregroundStyle(.secondary)
-                Text("Small family").font(.headline)
-                CompanionLiveCard(state: state, macName: mac.name, stale: false, isSmall: true)
-                    .frame(width: 200, height: 200, alignment: .topLeading).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-                Text("Small family · running").font(.headline)
-                CompanionLiveCard(state: running, macName: "George’s development MacBook Pro", stale: false, isSmall: true)
-                    .frame(width: 200, height: 200, alignment: .topLeading).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-                Text("Lock Screen").font(.headline)
-                CompanionLiveCard(state: state, macName: mac.name, stale: false)
-                    .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-                Text("Stale observation").font(.headline)
-                CompanionLiveCard(state: state, macName: mac.name, stale: true, isSmall: true)
-                    .frame(width: 200, height: 200, alignment: .topLeading).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-            }.padding()
-        }.navigationTitle("Live Activity preview").navigationBarTitleDisplayMode(.inline)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(account.displayName).font(.caption).textSelection(.enabled)
+                .accessibilityIdentifier("companion.accountIdentity")
+            if !account.detail.isEmpty { Text(account.detail).font(.caption2) }
+        }.foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
     }
 }
-#endif
+
+private struct CompanionDeviceHeader: View {
+    let name: String
+    let account: String?
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Label(name, systemImage: "laptopcomputer").font(.subheadline.weight(.semibold))
+            if let account { Text(account).font(.caption) }
+        }.textCase(nil)
+    }
+}

@@ -126,8 +126,6 @@ archive_app() {
     -destination 'generic/platform=macOS' \
     -archivePath "$archive_path" \
     ARCHS="${universal_architectures[*]}" ONLY_ACTIVE_ARCH=NO \
-    CODEXGAUGE_UPDATE_FEED_URL="${CODEXGAUGE_UPDATE_FEED_URL:-}" \
-    CODEXGAUGE_UPDATE_PUBLIC_KEY="${CODEXGAUGE_UPDATE_PUBLIC_KEY:-}" \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="$identity" DEVELOPMENT_TEAM="$team_id" \
     2>&1 | tee "$release_root/archive.log"
   reject_release_diagnostics "$release_root/archive.log"
@@ -153,7 +151,7 @@ verify_app_signature() {
   [[ "$details" == *"Runtime Version"* ]] || fail "the hardened runtime is missing"
   [[ "$details" == *"Timestamp="* ]] || fail "the Developer ID signature has no secure timestamp"
   entitlements="$(codesign -d --entitlements :- "$app_path" 2>/dev/null || true)"
-  [[ "$entitlements" != *"com.apple.security.app-sandbox"* ]] || fail "App Sandbox is unexpectedly enabled"
+  uv run python "$project_root/Scripts/check-mac-package.py" "$app_path" --release --universal
   [[ "$entitlements" != *"com.apple.security.get-task-allow"* ]] || fail "the release app is debuggable"
   while IFS= read -r nested; do
     codesign --verify --strict --verbose=2 "$nested"

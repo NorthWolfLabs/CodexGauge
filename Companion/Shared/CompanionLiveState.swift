@@ -127,7 +127,7 @@ struct CompanionLiveState: Codable, Hashable, Sendable {
     }
     func url(macID: String) -> URL? {
         var parts = URLComponents()
-        parts.scheme = "codexgauge"; parts.host = "tasks"; parts.path = "/" + macID
+        parts.scheme = "tokentach"; parts.host = "tasks"; parts.path = "/" + macID
         if let taskID { parts.queryItems = [URLQueryItem(name: "task", value: taskID)] }
         return parts.url
     }
@@ -206,7 +206,7 @@ private actor CompanionLiveTaskCycler {
             selected.selectionPending = nil; selected.selectionIsPinned = true
             selected.deliveryTimestamp = Date.now.timeIntervalSince1970
             let index = ((selected.taskIndex ?? 0) + 1) % max(1, selected.running + selected.attention)
-            selected.nextTask = .init(taskID: "layout-review-task-\(index)", title: "Review selected task \(index + 1)", project: "CodexGauge", state: "running",
+            selected.nextTask = .init(taskID: "layout-review-task-\(index)", title: "Review selected task \(index + 1)", project: "TokenTach", state: "running",
                 tokensPerMinute: 12800, taskObservedAt: selected.updatedAt, startedAt: selected.startedAt, activity: "Using a tool", contextPercent: 64, hasRate: true, taskIndex: index)
             await Self.apply(selected, activityID: activityID, timestamp: Date(timeIntervalSince1970: selected.deliveryTimestamp!))
             Logger(subsystem: "com.northwolflabs.CodexGauge", category: "LiveSelection").notice("Fixture confirmation applied")

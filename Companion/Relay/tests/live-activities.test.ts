@@ -1,13 +1,25 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
-import { liveState, nextLiveTaskID, liveRecordMissingOnDevice, livePayload, liveSignature, liveUrgentSignature, livePhaseSignature, liveDeliveryIsUrgent, liveNeedsRenewal, liveLifetime, nextLiveEvent, type LiveRecord, type LiveMessage } from '../src/live-activities.ts';
+import { liveState, nextLiveTaskID, liveRecordMissingOnDevice, livePayload, liveSignature, liveUrgentSignature, livePhaseSignature, liveDeliveryIsUrgent, liveRefreshAfter, liveNeedsRenewal, liveLifetime, nextLiveEvent, type LiveRecord, type LiveMessage } from '../src/live-activities.ts';
 import { sendLivePush } from '../src/apns.ts';
 import type { Snapshot } from '../src/protocol.ts';
 const snapshot = (): Snapshot => ({ schemaVersion: 1, id: '11111111-1111-4111-8111-111111111111', name: 'Test Mac', observedAt: 2000,
   tasks: [{ id: 'a', title: 'Working task', state: 'running', activity: 'Writing', tokensPerMinute: 500, totalTokens: 100, agentCount: 0 },
   { id: 'b', title: 'Review task', project: 'Project', state: 'needsApproval', activity: 'Waiting', tokensPerMinute: 0, totalTokens: 10, agentCount: 0 },
   { id: 'c', title: 'Old task', state: 'completed', activity: 'Completed', tokensPerMinute: 100, totalTokens: 10, agentCount: 0 }] });
+
+test('refresh hints preserve prompt deadlines across lower-priority metrics and phases', () => {
+  const state = liveState(snapshot());
+  const record: LiveRecord = { state, token: 'aa', lastPromptSentAt: 2000, lastPhaseSignature: livePhaseSignature(state) };
+  assert.equal(liveRefreshAfter(record, 2060), 60, 'A minute metric cannot postpone the 120-second prompt fallback');
+  record.state = { ...state, activity: 'Thinking' };
+  assert.equal(liveRefreshAfter(record, 2010, true), 20);
+  assert.equal(liveRefreshAfter(record, 2010, false), 50);
+  assert.equal(liveRefreshAfter(record, 2100), 5, 'Overdue hints remain bounded');
+  assert.equal(liveRefreshAfter({ ...record, dismissed: true }, 2010), undefined);
+  assert.equal(liveRefreshAfter({ ...record, state: { ...state, running: 0, attention: 0 } }, 2010), undefined);
+});
 
 test('foreground registry recovers missing mature activities without overriding dismissal or registration races', () => {
   const record: LiveRecord = { state: liveState(snapshot()), token: 'a'.repeat(64), activityID: 'old-card', registeredAt: 1940 };
@@ -150,12 +162,28 @@ test('selected task rate, source heartbeat, and bounded metric updates stay inde
   state.tokensPerMinute = 750; state.contextPercent = 40; state.activity = 'Using a tool';
   assert.equal(nextLiveEvent(record, true, true, 2001, true), undefined);
   assert.equal(nextLiveEvent(record, true, true, 2005, true), 'update');
-  assert.equal(nextLiveEvent(record, true, true, 2005, false), undefined);
+  assert.equal(nextLiveEvent(record, true, true, 2005, false), 'update', 'Phases are events regardless of the metric cadence');
   assert.equal(nextLiveEvent(record, true, true, 2015, false), 'update');
   assert.equal(record.lastUrgentSignature, liveUrgentSignature(state), 'Metrics and phase use low priority');
   state.state = 'needsInput'; assert.equal(nextLiveEvent(record, true, true, 2001, false), 'update');
   const aps = JSON.parse(livePayload({ event: 'update', state, macID: feed.id, macName: 'Mac', timestamp: 2001 })).aps;
   assert.equal(aps['stale-date'], 2180, 'A fresh Mac observation does not expire with the last task event');
+});
+
+test('minute metrics and two-minute freshness do not suppress immediate task transitions', () => {
+  const state = { ...liveState(snapshot()), state: 'running', activity: 'Thinking' };
+  const record: LiveRecord = { state, token: 'a'.repeat(64), lastSentAt: 2000, lastPromptSentAt: 2000,
+    lastSignature: liveSignature(state), lastUrgentSignature: liveUrgentSignature(state), lastPhaseSignature: livePhaseSignature(state) };
+  record.state = { ...state, tokensPerMinute: 1200, contextPercent: 48 };
+  for (const frequent of [true, false]) {
+    assert.equal(nextLiveEvent(record, true, true, 2059, frequent), undefined);
+    assert.equal(nextLiveEvent(record, true, true, 2060, frequent), 'update');
+  }
+  record.lastSignature = liveSignature(record.state);
+  assert.equal(nextLiveEvent(record, true, true, 2119), undefined);
+  assert.equal(nextLiveEvent(record, true, true, 2120), 'update');
+  record.state.state = 'needsApproval';
+  assert.equal(nextLiveEvent(record, true, true, 2001), 'update');
 });
 
 test('phase changes receive coalesced prompt delivery while rate-only updates remain low priority', () => {

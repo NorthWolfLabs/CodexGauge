@@ -18,7 +18,7 @@ import CoreServices
         NSApp.setActivationPolicy(.regular)
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 660, height: 560),
                           styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        window.title = "CodexGauge Sandbox Compatibility"
+        window.title = "TokenTach Sandbox Compatibility"
         let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 16
         stack.translatesAutoresizingMaskIntoConstraints = false
         report.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
@@ -180,7 +180,7 @@ import CoreServices
         }
         do {
             try child.run()
-            try input.fileHandleForWriting.write(contentsOf: Data("{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"CodexGaugeSandboxProbe\",\"version\":\"1\"},\"capabilities\":{}}}\n".utf8))
+            try input.fileHandleForWriting.write(contentsOf: Data("{\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"TokenTachSandboxProbe\",\"version\":\"1\"},\"capabilities\":{}}}\n".utf8))
             Task.detached { [weak self] in
                 var buffer = Data(); var result = "No initialize response"
                 var done = false; var receivedBytes = 0

@@ -12,7 +12,7 @@ const MAX_BYTES = 128 * 1024;
 const pushBatchSchema = z.object({ observations: z.array(snapshotSchema).min(1).max(16) }).strict();
 const app = new Hono<{ Bindings: Env }>();
 app.use('*', bodyLimit({ maxSize: 1024 * 1024 }));
-app.get('/health', c => c.json({ status: 'ok', protocol: 2, architecture: 'publisher-driven-push' }));
+app.get('/health', c => c.json({ status: 'ok', protocol: 2, architecture: 'publisher-driven-push', publishing: 'adaptive-events-v1' }));
 app.all('/v1/macs/:id/*', async c => {
   if (!token.safeParse(c.req.header('authorization')?.replace(/^Bearer /, '') ?? '').success) return c.json({ error: 'Request rejected' }, 401);
   const ip = c.req.header('CF-Connecting-IP') ?? 'local';
@@ -28,10 +28,10 @@ app.all('/v1/macs/:id/*', async c => {
   // Only this outer Worker may consume delivery plans containing APNs tokens.
   // Never return an internal plan to either client.
   if (response.ok && (c.req.path.endsWith('/push') || c.req.path.endsWith('/test-notification'))) {
-    const plan = await response.json() as { batches?: DeliveryBatch[]; result?: string; acceptedThrough?: number };
+    const plan = await response.json() as { batches?: DeliveryBatch[]; result?: string; acceptedThrough?: number; refreshAfter?: number };
     const results = await Promise.all((plan.batches ?? []).map(batch => deliverBatch(c.env, batch)));
     if (c.req.path.endsWith('/test-notification')) return c.json({ result: plan.result ?? results.flat()[0] ?? 'queued' });
-    return c.json({ acceptedThrough: plan.acceptedThrough }, 200, { 'Cache-Control': 'no-store' });
+    return c.json({ acceptedThrough: plan.acceptedThrough, refreshAfter: plan.refreshAfter }, 200, { 'Cache-Control': 'no-store' });
   }
   return response;
 });
@@ -47,8 +47,8 @@ function equals(left: string, right: string): boolean {
   return a.length === b.length && crypto.subtle.timingSafeEqual(a, b);
 }
 interface Keys { publisher: string; reader: string; usageReader: string }
-interface SocketIdentity { role: 'publisher' | Scope; publisherGeneration?: number; deviceID?: string }
-interface Subscriber { id: string; generation: number; revision?: number; deviceID?: string }
+interface SocketIdentity { role: 'publisher' | Scope; publisherGeneration?: number; deviceID?: string; adaptive?: boolean }
+interface Subscriber { id: string; generation: number; revision?: number; deviceID?: string; pushEnabled?: boolean }
 interface PairedDevice { id: string; name: string; digest: string; scope: Scope; pairedAt: number; lastSeen: number }
 const pairSchema = z.object({ id: macID, name: z.string().trim().min(1).max(80), token }).strict();
 // APNs tokens are variable-length opaque bytes. ActivityKit tokens can be
@@ -66,19 +66,29 @@ const liveSelectionSchema = z.object({ activityID: z.string().min(1).max(200), a
 // impersonate, or send commands to any Mac. No generic message-forwarding path.
 export class MacFeedV2 extends DurableObject<Env> {
   private latestSnapshot?: Snapshot;
+  private checkpointAt?: number;
+  private stored = new Map<string, string | undefined>();
   private refreshWaiters = new Set<() => void>();
-  private counters = { frames: 0, checkpoints: 0, pushBatches: 0 };
+  private counters = { frames: 0, checkpoints: 0, pushBatches: 0, reads: 0 };
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.ctx.storage.sql.exec('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('ping', 'pong'));
   }
   private read<T>(key: string): T | undefined {
-    const row = this.ctx.storage.sql.exec<{ value: string }>('SELECT value FROM state WHERE key = ?', key).toArray()[0];
-    return row ? JSON.parse(row.value) as T : undefined;
+    if (!this.stored.has(key)) {
+      const row = this.ctx.storage.sql.exec<{ value: string }>('SELECT value FROM state WHERE key = ?', key).toArray()[0];
+      this.stored.set(key, row?.value); this.counters.reads++;
+    }
+    const value = this.stored.get(key);
+    // Decode per reader so a caller cannot mutate authorization in the cache.
+    return value === undefined ? undefined : JSON.parse(value) as T;
   }
   private write(key: string, value: unknown) {
-    this.ctx.storage.sql.exec('INSERT INTO state VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, JSON.stringify(value));
+    const encoded = JSON.stringify(value);
+    if (this.stored.has(key) && this.stored.get(key) === encoded) return;
+    this.ctx.storage.sql.exec('INSERT INTO state VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value', key, encoded);
+    this.stored.set(key, encoded);
   }
   private authorize(digest: string): { role: 'publisher' | Scope; deviceID?: string } | undefined {
     const keys = this.read<Keys>('keys');
@@ -91,7 +101,10 @@ export class MacFeedV2 extends DurableObject<Env> {
   }
   private touchDevice(id: string | undefined) {
     if (!id) return;
-    this.write('devices', (this.read<PairedDevice[]>('devices') ?? []).map(d => d.id === id ? { ...d, lastSeen: Date.now() / 1000 } : d));
+    const devices = this.read<PairedDevice[]>('devices') ?? [], now = Date.now() / 1000;
+    if (devices.some(d => d.id === id && now - d.lastSeen >= 300)) {
+      this.write('devices', devices.map(d => d.id === id ? { ...d, lastSeen: now } : d));
+    }
   }
   private async removeDevice(pairedID: string, mac: string) {
     this.write('devices', (this.read<PairedDevice[]>('devices') ?? []).filter(d => d.id !== pairedID));
@@ -99,6 +112,7 @@ export class MacFeedV2 extends DurableObject<Env> {
     const removed = subscribers.filter(d => d.deviceID === pairedID);
     this.write('subscribers', subscribers.filter(d => d.deviceID !== pairedID));
     for (const ws of this.ctx.getWebSockets()) if ((ws.deserializeAttachment() as SocketIdentity).deviceID === pairedID) ws.close(1008, 'Device access removed');
+    this.notifyDemand();
     await Promise.all(removed.map(d => this.env.RECEIVERS.getByName(d.id).revoke(mac.toLowerCase(), d.generation, d.revision ?? 0)));
   }
   async fetch(request: Request): Promise<Response> {
@@ -139,12 +153,14 @@ export class MacFeedV2 extends DurableObject<Env> {
         || s.account && s.account.observedAt > now + 120 || i > 0 && s.observedAt <= observations[i - 1].observedAt)) return this.error(400);
       const subscribers = this.read<Subscriber[]>('subscribers') ?? [];
       this.counters.pushBatches++;
-      const batches = await Promise.all(subscribers.map(async s => {
+      const batches = await Promise.all(subscribers.filter(s => s.pushEnabled !== false).map(async s => {
         const receiver = this.env.RECEIVERS.getByName(s.id);
-        return { receiver: receiver.id.toString(), deliveries: await receiver.prepare(observations.map(compactSnapshot), s.generation) };
+        return { receiver: receiver.id.toString(), ...await receiver.prepareBatch(observations.map(compactSnapshot), s.generation) };
       }));
       if (this.authorize(digest)?.role !== 'publisher') return this.error(401);
-      return Response.json({ batches, acceptedThrough: observations.at(-1)!.observedAt });
+      const deadlines = batches.flatMap(batch => batch.refreshAfter === undefined ? [] : [batch.refreshAfter]);
+      return Response.json({ batches, acceptedThrough: observations.at(-1)!.observedAt,
+        refreshAfter: deadlines.length ? Math.min(...deadlines) : undefined });
     }
     if (action === 'pair' && request.method === 'POST' && role !== 'publisher' && !deviceID) {
       const registration = pairSchema.safeParse(await this.body(request));
@@ -165,6 +181,7 @@ export class MacFeedV2 extends DurableObject<Env> {
         id: pairedID, name: registration.data.name, digest: deviceDigest, scope: role,
         pairedAt: existing?.pairedAt ?? now, lastSeen: now,
       } satisfies PairedDevice]);
+      this.notifyDemand();
       return Response.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
     }
     if (action === 'devices' && role === 'publisher') {
@@ -232,6 +249,7 @@ export class MacFeedV2 extends DurableObject<Env> {
       // Revoke authorization before an RPC yields, so a concurrent registration
       // cannot be accepted after the subscriber list was captured for cleanup.
       this.ctx.storage.sql.exec('DELETE FROM state');
+      this.stored.clear(); this.checkpointAt = undefined;
       // Keep only a monotonic counter. Recreating the same installation ID must
       // not let cleanup for an old feed revoke a new generation's subscription.
       this.write('generation', generation);
@@ -255,6 +273,7 @@ export class MacFeedV2 extends DurableObject<Env> {
       const subscriptions = this.read<Subscriber[]>('subscribers') ?? [];
       this.write('subscribers', []);
       for (const ws of this.ctx.getWebSockets()) if ((ws.deserializeAttachment() as SocketIdentity).role !== 'publisher') ws.close(1008, 'Viewing access revoked');
+      this.notifyDemand();
       await Promise.all(subscriptions.map(s => this.env.RECEIVERS.getByName(s.id).revoke(id.toLowerCase(), s.generation)));
       return Response.json({ ok: true });
     }
@@ -273,6 +292,7 @@ export class MacFeedV2 extends DurableObject<Env> {
         const existing = (this.read<Subscriber[]>('subscribers') ?? []).find(s => s.id === receiverID);
         if (existing?.deviceID && existing.deviceID !== deviceID) return this.error(403);
         this.write('subscribers', (this.read<Subscriber[]>('subscribers') ?? []).filter(s => s.id !== receiverID));
+        this.notifyDemand();
         if (existing) await this.env.RECEIVERS.getByName(receiverID).revoke(id.toLowerCase(), existing.generation, existing.revision ?? 0);
         return Response.json({ ok: true });
       }
@@ -284,8 +304,9 @@ export class MacFeedV2 extends DurableObject<Env> {
       this.write('registrationRevision', revision);
       // Reserve atomically before RPC yields. Reusing the pre-await list afterward
       // loses other phones and lets concurrent requests exceed the subscriber cap.
-      this.write('subscribers', [...subscriptions.filter(s => s.id !== receiverID), { id: receiverID, generation, revision, deviceID }]);
       const device = { ...registration.data, kinds: scope === 'usage' ? registration.data.kinds.filter(k => ['low', 'banked', 'allowance'].includes(k)) : registration.data.kinds };
+      const pushEnabled = device.kinds.length > 0 || scope === 'full' && device.liveActivities?.enabled === true;
+      this.write('subscribers', [...subscriptions.filter(s => s.id !== receiverID), { id: receiverID, generation, revision, deviceID, pushEnabled }]);
       const receiver = this.env.RECEIVERS.getByName(receiverID);
       try { await receiver.register(id.toLowerCase(), device, scope, generation, revision); }
       catch {
@@ -320,6 +341,7 @@ export class MacFeedV2 extends DurableObject<Env> {
           || !reserved || reserved.generation !== generation) return this.error(401);
         if (reserved.revision !== revision) return Response.json({ configured: Boolean(this.env.APNS_PRIVATE_KEY && this.env.APNS_KEY_ID), foregroundStartAllowed: false, foregroundStartRetry: true, foregroundStartRetrySoon: true });
       }
+      this.notifyDemand(true);
       this.requestSnapshot();
       return Response.json({ configured: Boolean(this.env.APNS_PRIVATE_KEY && this.env.APNS_KEY_ID), ...foreground });
     }
@@ -354,7 +376,8 @@ export class MacFeedV2 extends DurableObject<Env> {
         this.write('publisherGeneration', publisherGeneration);
       }
       this.touchDevice(deviceID);
-      server.serializeAttachment({ role, publisherGeneration, deviceID } satisfies SocketIdentity);
+      server.serializeAttachment({ role, publisherGeneration, deviceID, adaptive: role === 'publisher' && url.searchParams.get('publishing') === 'adaptive' } satisfies SocketIdentity);
+      this.notifyDemand(role === 'publisher');
       if (role !== 'publisher') {
         server.send(JSON.stringify(presentation(this.latestSnapshot ?? this.read<Snapshot>('snapshot'), role)));
         this.requestSnapshot();
@@ -376,8 +399,8 @@ export class MacFeedV2 extends DurableObject<Env> {
     const now = Date.now() / 1000;
     // A reconnect must send current state, not replay old task activity as live.
     if (Math.abs(snapshot.observedAt - now) > 120 || (snapshot.account && snapshot.account.observedAt > now + 120)) { ws.close(1008, 'Invalid observation time'); return; }
-    const saved = this.read<Snapshot>('snapshot');
-    const previous = this.latestSnapshot ?? saved;
+    const previous = this.latestSnapshot ?? this.read<Snapshot>('snapshot');
+    this.checkpointAt ??= this.read<Snapshot>('snapshot')?.observedAt ?? -Infinity;
     if (previous && snapshot.observedAt <= previous.observedAt) {
       // A repeated/out-of-order frame must not roll state back or strand the
       // publisher's request/acknowledgment loop until its timeout.
@@ -387,8 +410,8 @@ export class MacFeedV2 extends DurableObject<Env> {
     this.latestSnapshot = snapshot;
     for (const ready of this.refreshWaiters) ready();
     this.counters.frames++;
-    if (!saved || snapshot.observedAt - saved.observedAt >= 300) {
-      this.write('snapshot', snapshot);
+    if (snapshot.observedAt - this.checkpointAt >= 300) {
+      this.write('snapshot', snapshot); this.checkpointAt = snapshot.observedAt;
       this.counters.checkpoints++;
     }
     for (const viewer of this.ctx.getWebSockets()) {
@@ -402,6 +425,18 @@ export class MacFeedV2 extends DurableObject<Env> {
     // Push observations arrive independently through the ordinary Worker. No
     // receiver RPC, alarm, or per-phone write belongs on the WebSocket hot path.
   }
+  private notifyDemand(refreshPush = false, closing?: WebSocket) {
+    const sockets = this.ctx.getWebSockets().filter(ws => ws !== closing && ws.readyState === WebSocket.OPEN);
+    const demand = JSON.stringify({ type: 'demand',
+      viewers: sockets.filter(ws => (ws.deserializeAttachment() as SocketIdentity).role !== 'publisher').length,
+      push: (this.read<Subscriber[]>('subscribers') ?? []).some(s => s.pushEnabled !== false),
+      paired: (this.read<PairedDevice[]>('devices') ?? []).length > 0, refreshPush });
+    // Opt in: older publishers reject unknown control frames. Attachments retain
+    // the capability across hibernation; no polling alarm or stored counter.
+    for (const ws of sockets) if ((ws.deserializeAttachment() as SocketIdentity).adaptive) {
+      try { ws.send(demand); } catch { /* Reconnect restores current demand. */ }
+    }
+  }
   private requestSnapshot() {
     for (const publisher of this.ctx.getWebSockets('publisher')) {
       try { publisher.send(JSON.stringify({ type: 'refresh' })); } catch { /* Reconnect supplies current state. */ }
@@ -413,8 +448,9 @@ export class MacFeedV2 extends DurableObject<Env> {
     // be sent on the wire. Browsers and URLSession can disconnect this way.
     const valid = code >= 1000 && code < 5000 && ![1004, 1005, 1006, 1015].includes(code);
     ws.close(valid ? code : 1000);
+    this.notifyDemand(false, ws);
   }
-  webSocketError(ws: WebSocket) { ws.close(1011, 'Reconnect'); }
+  webSocketError(ws: WebSocket) { ws.close(1011, 'Reconnect'); this.notifyDemand(false, ws); }
   private error(status: number) { return Response.json({ error: 'Request rejected' }, { status }); }
   private async body(request: Request, maxBytes = MAX_BYTES): Promise<Record<string, unknown> | undefined> {
     const reader = request.body?.getReader();

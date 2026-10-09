@@ -1,0 +1,699 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 46;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0701EE9525C99638AC3D4571 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5FFA8E57C44B42D40485BD6C /* PrivacyInfo.xcprivacy */; };
+		095BB8DA1B9BBE24DCC63AAA /* CompanionChartData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01CBF40759490D3B1894DDB0 /* CompanionChartData.swift */; };
+		100AB4A315D18F3D18087BD9 /* CompanionLiveActivityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A39A8F7CD3DC1DD8605AE535 /* CompanionLiveActivityUITests.swift */; };
+		1939B0405F31EE866652DC22 /* CompanionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31FEEB7CE6EB5DE1F79A0F0E /* CompanionStore.swift */; };
+		1BDA277AAE515764EC39ABF3 /* CompanionUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC34AACBF57E2F02EB4124BC /* CompanionUITests.swift */; };
+		24D095F1F9769AD3AD43319E /* CompanionActivityAccessUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2FDADCF87C42380BB49D643E /* CompanionActivityAccessUITests.swift */; };
+		27EA2FAB7F25984AAC469715 /* CompanionCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AB290E9F74E910235D5A0A1 /* CompanionCharts.swift */; };
+		287FC101EE4E4D641C1BFCA9 /* CompanionFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7223C517C4422F40E7C872AF /* CompanionFixtures.swift */; };
+		2C560217F8CF508DBC010205 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 54EEE70E5FC5EF4556A8352C /* Foundation.framework */; };
+		2EFBC0DE688783995FFECB18 /* CompanionLiveActivities.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C447EE31F6096353CBCBF6E /* CompanionLiveActivities.swift */; };
+		317C5E714F3423131F849D7A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = DD997B195E2BBC637B868F0E /* Assets.xcassets */; };
+		3B55C45D3BA6B251E3D6A6A1 /* CompanionFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7223C517C4422F40E7C872AF /* CompanionFixtures.swift */; };
+		4DBB607D1D58C6DB69EA08E5 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 54EEE70E5FC5EF4556A8352C /* Foundation.framework */; };
+		53076AC59A3AD691AEB97E99 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8752E6D5A66A429AEEB400 /* CompanionModels.swift */; };
+		5E6899A4FBAF9BD506245F5D /* CompanionLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD8D8609E79012D72CD9F87 /* CompanionLiveState.swift */; };
+		7AC6FEEE24F157AF1B13DE68 /* CompanionAccountUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 396424D892DD7DC67E705653 /* CompanionAccountUITests.swift */; };
+		85203F4815C8B67166AE0523 /* CompanionAcceptanceUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA15B5E83E656E7D292F7E76 /* CompanionAcceptanceUITests.swift */; };
+		89952B2A21A47DBCDB9AE922 /* TokenTachWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76FDC22FAD559BC4D3A7B901 /* TokenTachWidgets.swift */; };
+		8DD8E385DC6BCBDAC26EF459 /* CompanionLiveCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703D583692FD045268783896 /* CompanionLiveCard.swift */; };
+		901719A5C322073D29257FB1 /* CompanionPush.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27924E43B2B4D01FF8FAD867 /* CompanionPush.swift */; };
+		908F2B4C7459DA7DA9661A57 /* CompanionStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67363C3E84073C9A905E6019 /* CompanionStorage.swift */; };
+		914368C6C471985DE5A4B102 /* TokenTachMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 161718BE972B05429F056904 /* TokenTachMobileApp.swift */; };
+		A2D5578BDB116ADAFF60C021 /* TokenTachWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 461A061F68E72D2D14E2C3F3 /* TokenTachWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A50FDEAA88845A781A6713A7 /* AppIcon.icon in Resources */ = {isa = PBXBuildFile; fileRef = D0AA82B6527AECED8ABFA038 /* AppIcon.icon */; };
+		A6372E8337B809B8BB6F6A44 /* CompanionLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02C57873980F7083D75E9FAD /* CompanionLiveActivity.swift */; };
+		AEE4ADD67CB86688E1A24FFC /* CompanionPushUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0C6E4522E0B0FD886069E29 /* CompanionPushUITests.swift */; };
+		B1172B69082861CB5587BDE2 /* CompanionChartData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01CBF40759490D3B1894DDB0 /* CompanionChartData.swift */; };
+		BF76B5745EB9EF9FF774A0F9 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 54EEE70E5FC5EF4556A8352C /* Foundation.framework */; };
+		C78ACD2BC61EC863ACEC6EB6 /* CompanionLiveState.swift in Sources */ = {isa = PBXBuildFile; fileRef = FBD8D8609E79012D72CD9F87 /* CompanionLiveState.swift */; };
+		C8A9A1724295F33368144477 /* CompanionLiveCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 703D583692FD045268783896 /* CompanionLiveCard.swift */; };
+		CF442C9DB4F2021EA5424D4C /* CompanionStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67363C3E84073C9A905E6019 /* CompanionStorage.swift */; };
+		D3566B000D1965A1A05138CB /* CompanionHome.swift in Sources */ = {isa = PBXBuildFile; fileRef = E22F8DEE9397CCE90BA66AEE /* CompanionHome.swift */; };
+		DA40D4CF74E8357A78F67ADB /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 5FFA8E57C44B42D40485BD6C /* PrivacyInfo.xcprivacy */; };
+		EAA35451071EE2DA8A4F1D93 /* CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB8752E6D5A66A429AEEB400 /* CompanionModels.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		89EDCC9B25F33CFD25DAFE77 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D001BEE8CAD317F9D974CEFA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F62DEB8859548D24CEDCC9E1;
+			remoteInfo = TokenTachWidgets;
+		};
+		B87801292CD4243709F8563D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D001BEE8CAD317F9D974CEFA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4CFD1698592DC80179A0B652;
+			remoteInfo = TokenTachMobile;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		4E8AFD52AB41A8ED59DD97EA /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A2D5578BDB116ADAFF60C021 /* TokenTachWidgets.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		01CBF40759490D3B1894DDB0 /* CompanionChartData.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionChartData.swift; sourceTree = "<group>"; };
+		02C57873980F7083D75E9FAD /* CompanionLiveActivity.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionLiveActivity.swift; sourceTree = "<group>"; };
+		0AB290E9F74E910235D5A0A1 /* CompanionCharts.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionCharts.swift; sourceTree = "<group>"; };
+		161718BE972B05429F056904 /* TokenTachMobileApp.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TokenTachMobileApp.swift; sourceTree = "<group>"; };
+		27924E43B2B4D01FF8FAD867 /* CompanionPush.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionPush.swift; sourceTree = "<group>"; };
+		2FDADCF87C42380BB49D643E /* CompanionActivityAccessUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionActivityAccessUITests.swift; sourceTree = "<group>"; };
+		31FEEB7CE6EB5DE1F79A0F0E /* CompanionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionStore.swift; sourceTree = "<group>"; };
+		396424D892DD7DC67E705653 /* CompanionAccountUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionAccountUITests.swift; sourceTree = "<group>"; };
+		3E1DA2E748A99C5C54332A6A /* CompanionUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CompanionUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		461A061F68E72D2D14E2C3F3 /* TokenTachWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TokenTachWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		54EEE70E5FC5EF4556A8352C /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		5FFA8E57C44B42D40485BD6C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		67363C3E84073C9A905E6019 /* CompanionStorage.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionStorage.swift; sourceTree = "<group>"; };
+		703D583692FD045268783896 /* CompanionLiveCard.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionLiveCard.swift; sourceTree = "<group>"; };
+		7223C517C4422F40E7C872AF /* CompanionFixtures.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionFixtures.swift; sourceTree = "<group>"; };
+		76FDC22FAD559BC4D3A7B901 /* TokenTachWidgets.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TokenTachWidgets.swift; sourceTree = "<group>"; };
+		8C447EE31F6096353CBCBF6E /* CompanionLiveActivities.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionLiveActivities.swift; sourceTree = "<group>"; };
+		A39A8F7CD3DC1DD8605AE535 /* CompanionLiveActivityUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionLiveActivityUITests.swift; sourceTree = "<group>"; };
+		AA15B5E83E656E7D292F7E76 /* CompanionAcceptanceUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionAcceptanceUITests.swift; sourceTree = "<group>"; };
+		BC34AACBF57E2F02EB4124BC /* CompanionUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionUITests.swift; sourceTree = "<group>"; };
+		C0C6E4522E0B0FD886069E29 /* CompanionPushUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionPushUITests.swift; sourceTree = "<group>"; };
+		CB8752E6D5A66A429AEEB400 /* CompanionModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionModels.swift; sourceTree = "<group>"; };
+		D0AA82B6527AECED8ABFA038 /* AppIcon.icon */ = {isa = PBXFileReference; includeInIndex = 1; name = AppIcon.icon; path = ../TokenTach/AppIcon.icon; sourceTree = "<group>"; };
+		D2F54436A9289D894D91814B /* TokenTachMobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TokenTachMobile.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD997B195E2BBC637B868F0E /* Assets.xcassets */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = iOS/Assets.xcassets; sourceTree = "<group>"; };
+		E22F8DEE9397CCE90BA66AEE /* CompanionHome.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionHome.swift; sourceTree = "<group>"; };
+		FBD8D8609E79012D72CD9F87 /* CompanionLiveState.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompanionLiveState.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		05AA8A658352AEE32A73406E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BF76B5745EB9EF9FF774A0F9 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		143043479A9278766BF6BF7A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2C560217F8CF508DBC010205 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3292BDD6798A56DCF3D11D6B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4DBB607D1D58C6DB69EA08E5 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		1579A1CCC599A115F53F77EE /* UITests */ = {
+			isa = PBXGroup;
+			children = (
+				AA15B5E83E656E7D292F7E76 /* CompanionAcceptanceUITests.swift */,
+				396424D892DD7DC67E705653 /* CompanionAccountUITests.swift */,
+				2FDADCF87C42380BB49D643E /* CompanionActivityAccessUITests.swift */,
+				A39A8F7CD3DC1DD8605AE535 /* CompanionLiveActivityUITests.swift */,
+				C0C6E4522E0B0FD886069E29 /* CompanionPushUITests.swift */,
+				BC34AACBF57E2F02EB4124BC /* CompanionUITests.swift */,
+			);
+			name = UITests;
+			path = UITests;
+			sourceTree = "<group>";
+		};
+		20C895F9BBA41441FA603093 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				0AB290E9F74E910235D5A0A1 /* CompanionCharts.swift */,
+				E22F8DEE9397CCE90BA66AEE /* CompanionHome.swift */,
+				8C447EE31F6096353CBCBF6E /* CompanionLiveActivities.swift */,
+				27924E43B2B4D01FF8FAD867 /* CompanionPush.swift */,
+				31FEEB7CE6EB5DE1F79A0F0E /* CompanionStore.swift */,
+				161718BE972B05429F056904 /* TokenTachMobileApp.swift */,
+			);
+			name = iOS;
+			path = iOS;
+			sourceTree = "<group>";
+		};
+		27030EC40BA456DD70CF808A /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D2F54436A9289D894D91814B /* TokenTachMobile.app */,
+				461A061F68E72D2D14E2C3F3 /* TokenTachWidgets.appex */,
+				3E1DA2E748A99C5C54332A6A /* CompanionUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		3281D09D351522CE4EA77AF9 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				54EEE70E5FC5EF4556A8352C /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		389442442801307329AD2F7E /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				01CBF40759490D3B1894DDB0 /* CompanionChartData.swift */,
+				7223C517C4422F40E7C872AF /* CompanionFixtures.swift */,
+				703D583692FD045268783896 /* CompanionLiveCard.swift */,
+				FBD8D8609E79012D72CD9F87 /* CompanionLiveState.swift */,
+				CB8752E6D5A66A429AEEB400 /* CompanionModels.swift */,
+				67363C3E84073C9A905E6019 /* CompanionStorage.swift */,
+				5FFA8E57C44B42D40485BD6C /* PrivacyInfo.xcprivacy */,
+			);
+			name = Shared;
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		74394559442145370096F360 /* Widgets */ = {
+			isa = PBXGroup;
+			children = (
+				02C57873980F7083D75E9FAD /* CompanionLiveActivity.swift */,
+				76FDC22FAD559BC4D3A7B901 /* TokenTachWidgets.swift */,
+			);
+			name = Widgets;
+			path = Widgets;
+			sourceTree = "<group>";
+		};
+		7959CD2F40C76522DA96995F /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				3281D09D351522CE4EA77AF9 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		AEA8DD6B9FD71EB0C2529DBF = {
+			isa = PBXGroup;
+			children = (
+				27030EC40BA456DD70CF808A /* Products */,
+				7959CD2F40C76522DA96995F /* Frameworks */,
+				389442442801307329AD2F7E /* Shared */,
+				20C895F9BBA41441FA603093 /* iOS */,
+				74394559442145370096F360 /* Widgets */,
+				D0AA82B6527AECED8ABFA038 /* AppIcon.icon */,
+				DD997B195E2BBC637B868F0E /* Assets.xcassets */,
+				1579A1CCC599A115F53F77EE /* UITests */,
+			);
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4CFD1698592DC80179A0B652 /* TokenTachMobile */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2DB65183C1130DA746C2CD74 /* Build configuration list for PBXNativeTarget "TokenTachMobile" */;
+			buildPhases = (
+				5C52E5B1A36640628A3A6E62 /* Sources */,
+				143043479A9278766BF6BF7A /* Frameworks */,
+				1B0F93601891ADF0D7117834 /* Resources */,
+				4E8AFD52AB41A8ED59DD97EA /* Embed App Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BE5EDA45E1341598FA247B00 /* PBXTargetDependency */,
+			);
+			name = TokenTachMobile;
+			productName = TokenTachMobile;
+			productReference = D2F54436A9289D894D91814B /* TokenTachMobile.app */;
+			productType = "com.apple.product-type.application";
+		};
+		801770F354902DD206A474FE /* CompanionUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4D862FA208A2E4735D5FC0AE /* Build configuration list for PBXNativeTarget "CompanionUITests" */;
+			buildPhases = (
+				8999166EF1D87D606E222451 /* Sources */,
+				3292BDD6798A56DCF3D11D6B /* Frameworks */,
+				845A99E11DE6BB585BEBFA9A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A8DB0E67036672408E90AE19 /* PBXTargetDependency */,
+			);
+			name = CompanionUITests;
+			productName = CompanionUITests;
+			productReference = 3E1DA2E748A99C5C54332A6A /* CompanionUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		F62DEB8859548D24CEDCC9E1 /* TokenTachWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 35B7DE980D3653FBB35B73A0 /* Build configuration list for PBXNativeTarget "TokenTachWidgets" */;
+			buildPhases = (
+				2F59EF3AB784A412FDB47113 /* Sources */,
+				05AA8A658352AEE32A73406E /* Frameworks */,
+				16FA24AC8BE92E5FEA328866 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = TokenTachWidgets;
+			productName = TokenTachWidgets;
+			productReference = 461A061F68E72D2D14E2C3F3 /* TokenTachWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		D001BEE8CAD317F9D974CEFA /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = FD626CAD99CA9F1550461946 /* Build configuration list for PBXProject "TokenTachMobile" */;
+			compatibilityVersion = "Xcode 3.2";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AEA8DD6B9FD71EB0C2529DBF;
+			minimizedProjectReferenceProxies = 0;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 27030EC40BA456DD70CF808A /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4CFD1698592DC80179A0B652 /* TokenTachMobile */,
+				F62DEB8859548D24CEDCC9E1 /* TokenTachWidgets */,
+				801770F354902DD206A474FE /* CompanionUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		16FA24AC8BE92E5FEA328866 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA40D4CF74E8357A78F67ADB /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1B0F93601891ADF0D7117834 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0701EE9525C99638AC3D4571 /* PrivacyInfo.xcprivacy in Resources */,
+				A50FDEAA88845A781A6713A7 /* AppIcon.icon in Resources */,
+				317C5E714F3423131F849D7A /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		845A99E11DE6BB585BEBFA9A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		2F59EF3AB784A412FDB47113 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				095BB8DA1B9BBE24DCC63AAA /* CompanionChartData.swift in Sources */,
+				3B55C45D3BA6B251E3D6A6A1 /* CompanionFixtures.swift in Sources */,
+				C8A9A1724295F33368144477 /* CompanionLiveCard.swift in Sources */,
+				5E6899A4FBAF9BD506245F5D /* CompanionLiveState.swift in Sources */,
+				EAA35451071EE2DA8A4F1D93 /* CompanionModels.swift in Sources */,
+				CF442C9DB4F2021EA5424D4C /* CompanionStorage.swift in Sources */,
+				A6372E8337B809B8BB6F6A44 /* CompanionLiveActivity.swift in Sources */,
+				89952B2A21A47DBCDB9AE922 /* TokenTachWidgets.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5C52E5B1A36640628A3A6E62 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B1172B69082861CB5587BDE2 /* CompanionChartData.swift in Sources */,
+				287FC101EE4E4D641C1BFCA9 /* CompanionFixtures.swift in Sources */,
+				8DD8E385DC6BCBDAC26EF459 /* CompanionLiveCard.swift in Sources */,
+				C78ACD2BC61EC863ACEC6EB6 /* CompanionLiveState.swift in Sources */,
+				53076AC59A3AD691AEB97E99 /* CompanionModels.swift in Sources */,
+				908F2B4C7459DA7DA9661A57 /* CompanionStorage.swift in Sources */,
+				27EA2FAB7F25984AAC469715 /* CompanionCharts.swift in Sources */,
+				D3566B000D1965A1A05138CB /* CompanionHome.swift in Sources */,
+				2EFBC0DE688783995FFECB18 /* CompanionLiveActivities.swift in Sources */,
+				901719A5C322073D29257FB1 /* CompanionPush.swift in Sources */,
+				1939B0405F31EE866652DC22 /* CompanionStore.swift in Sources */,
+				914368C6C471985DE5A4B102 /* TokenTachMobileApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		8999166EF1D87D606E222451 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				85203F4815C8B67166AE0523 /* CompanionAcceptanceUITests.swift in Sources */,
+				7AC6FEEE24F157AF1B13DE68 /* CompanionAccountUITests.swift in Sources */,
+				24D095F1F9769AD3AD43319E /* CompanionActivityAccessUITests.swift in Sources */,
+				100AB4A315D18F3D18087BD9 /* CompanionLiveActivityUITests.swift in Sources */,
+				AEE4ADD67CB86688E1A24FFC /* CompanionPushUITests.swift in Sources */,
+				1BDA277AAE515764EC39ABF3 /* CompanionUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A8DB0E67036672408E90AE19 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = TokenTachMobile;
+			target = 4CFD1698592DC80179A0B652 /* TokenTachMobile */;
+			targetProxy = B87801292CD4243709F8563D /* PBXContainerItemProxy */;
+		};
+		BE5EDA45E1341598FA247B00 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = TokenTachWidgets;
+			target = F62DEB8859548D24CEDCC9E1 /* TokenTachWidgets */;
+			targetProxy = 89EDCC9B25F33CFD25DAFE77 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		03B84A433F93002090174056 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = "iOS/$(COMPANION_RELEASE_ENTITLEMENTS)$(DEVICE_NAME_ENTITLEMENTS_SUFFIX).entitlements";
+				COMPANION_RELEASE_ENTITLEMENTS = CompanionDistribution;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				DEVICE_NAME_ENTITLEMENTS_SUFFIX = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = iOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		0977EFDCFEFEF234F8078BAF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		16FD4C834599A4BB563ECC88 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		28F949019241F459446FDC78 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge.mobile.uitests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = TokenTachMobile;
+			};
+			name = Debug;
+		};
+		4B8F2A3CAB06D447A6401217 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = "iOS/CompanionPush$(DEVICE_NAME_ENTITLEMENTS_SUFFIX).entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				DEVICE_NAME_ENTITLEMENTS_SUFFIX = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = iOS/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		98B118D3B843CD6395568B7F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = iOS/Companion.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				DEVICE_NAME_ENTITLEMENTS_SUFFIX = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Widgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge.widgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A2538A3E3651F37AD6E9AC5B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge.mobile.uitests;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = TokenTachMobile;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		C5A0022DD3A8D7C8FBF7573D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_ENTITLEMENTS = iOS/Companion.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				DEVICE_NAME_ENTITLEMENTS_SUFFIX = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Widgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge.widgets;
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2DB65183C1130DA746C2CD74 /* Build configuration list for PBXNativeTarget "TokenTachMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				03B84A433F93002090174056 /* Release */,
+				4B8F2A3CAB06D447A6401217 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		35B7DE980D3653FBB35B73A0 /* Build configuration list for PBXNativeTarget "TokenTachWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				C5A0022DD3A8D7C8FBF7573D /* Release */,
+				98B118D3B843CD6395568B7F /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4D862FA208A2E4735D5FC0AE /* Build configuration list for PBXNativeTarget "CompanionUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A2538A3E3651F37AD6E9AC5B /* Release */,
+				28F949019241F459446FDC78 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FD626CAD99CA9F1550461946 /* Build configuration list for PBXProject "TokenTachMobile" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0977EFDCFEFEF234F8078BAF /* Debug */,
+				16FD4C834599A4BB563ECC88 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = D001BEE8CAD317F9D974CEFA /* Project object */;
+}

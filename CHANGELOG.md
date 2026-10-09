@@ -1,8 +1,12 @@
 # Changelog
 
-All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). CodexGauge uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). TokenTach uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+- Rename CodexGauge to TokenTach across Mac, mobile, widgets, projects and packaging. Retain deployed identifiers and saved state.
+- Prepare version 1.2.0 (10) for TestFlight with mobile privacy manifests, production push entitlements and validated local archive/export commands.
+- Add optional Apple-approved device-name entitlements and show the phone name when linking a Mac.
 
 - Refine account and allowance cards, task and activity headers, and current-turn runtime recovery on Mac and iPhone. Deduplicate task rows and restore the Overview working indicator.
 - Move Mac pairing into Devices settings with a wrapped QR sheet and individual device removal. Link from iPhone by scanning or pasting without exposing the viewing URL.

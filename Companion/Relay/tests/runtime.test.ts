@@ -153,7 +153,9 @@ test('hundreds of metrics perform zero durable writes; HTTP plans hide tokens an
     await r.receiver.registerLiveActivity(id, 1, { activityID: 'activity', activityToken: 'e'.repeat(64) });
     const initial = await r.request(id, 'push', { observations: [source] });
     assert.equal(initial.status, 200);
-    assert.deepEqual(Object.keys(await initial.json()), ['acceptedThrough']);
+    const acknowledgment = await initial.json();
+    assert.deepEqual(Object.keys(acknowledgment), ['acceptedThrough', 'refreshAfter']);
+    assert.ok(acknowledgment.refreshAfter > 119 && acknowledgment.refreshAfter <= 120);
     assert.equal(r.sent.length, 1);
     const before = await r.receiver.diagnostics();
     for (let i = 1; i <= 200; i++) {
@@ -165,10 +167,13 @@ test('hundreds of metrics perform zero durable writes; HTTP plans hide tokens an
     assert.equal(after.writes, before.writes, 'Metric snapshots must not write SQL');
     assert.equal(after.pending, 0, 'Metric traffic must not create durable delivery jobs');
     assert.equal(after.alarms, before.alarms, 'Metric traffic must not start polling alarms');
-    await new Promise(resolve => setTimeout(resolve, 5100));
+    await new Promise(resolve => setTimeout(resolve, 60_100));
     const due = structuredClone(source); due.observedAt = Date.now() / 1000;
     due.tasks[0].tokensPerMinute += 1000;
-    assert.equal((await r.request(id, 'push', { observations: [due] })).status, 200);
+    const metricsResponse = await r.request(id, 'push', { observations: [due] });
+    assert.equal(metricsResponse.status, 200);
+    const refresh = (await metricsResponse.json()).refreshAfter;
+    assert.ok(refresh > 50 && refresh <= 60, 'Low-priority metrics preserve the next prompt deadline');
     assert.equal(r.sent.length, 2);
     assert.equal(r.sent[1].priority, '5');
     assert.equal((await r.receiver.diagnostics()).writes, before.writes, 'Accepted background metrics need no durable receipt');

@@ -2,6 +2,27 @@ import Foundation
 import Testing
 @testable import CompanionCore
 
+@Test func wireTimestampRoundingAcknowledgesTheSentObservationWithoutDroppingLaterWork() throws {
+    struct Stamp: Codable { let at: Date }
+    let start = Date(timeIntervalSinceReferenceDate: 813_432_123.123456)
+    var roundedDown = 0
+    for index in 0..<100 {
+        var snapshot = CompanionFixtures.snapshots(at: start + Double(index) / 100)[0]
+        let sent = try CompanionCoding.encoder.encode(Stamp(at: snapshot.observedAt))
+        let through = try CompanionCoding.decoder.decode(Stamp.self, from: sent).at
+        if through < snapshot.observedAt { roundedDown += 1 }
+        #expect(snapshot.isAcknowledged(through: through))
+        var journal = CompanionPushJournal()
+        _ = try journal.observe(snapshot)
+        let acknowledged = journal.acknowledge(through: through)
+        #expect(acknowledged)
+        #expect(journal.pending.isEmpty)
+        snapshot.observedAt += 1
+        #expect(!snapshot.isAcknowledged(through: through))
+    }
+    #expect(roundedDown > 0, "Exercise Date values that the original direct comparison rejected")
+}
+
 private struct PushBatch: Decodable { let observations: [CompanionSnapshot] }
 
 @Test func metricsDoNotJournalButImportantTransitionsSurviveRestart() throws {

@@ -7,7 +7,7 @@ beta_version="${BETA_VERSION:-1.3.0}"
 beta_build="${BETA_BUILD:-10}"
 beta_label="${BETA_LABEL:-$beta_version-rc.1}"
 output="${BETA_OUTPUT_ROOT:-$project_root/.build/beta/$beta_label}"
-product_name="CodexGauge Beta"
+product_name="TokenTach Beta"
 bundle_id="com.northwolflabs.CodexGauge.beta"
 identity="${DEVELOPER_ID_APPLICATION:-$(security find-identity -v -p codesigning | sed -nE 's/.*"(Developer ID Application: .* \(ALPX923Y54\))".*/\1/p' | head -n 1)}"
 identity="${identity:--}"
@@ -24,11 +24,11 @@ git -C "$project_root" rev-parse HEAD > "$output/source-commit.txt"
 git -C "$project_root" status --short > "$output/source-working-tree.txt"
 
 xcodebuild build \
-  -project "$project_root/CodexGauge.xcodeproj" -scheme CodexGauge \
+  -project "$project_root/TokenTach.xcodeproj" -scheme TokenTach \
   -configuration Release -destination 'generic/platform=macOS' \
   -derivedDataPath "$output/DerivedData" \
   ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO \
-  PRODUCT_NAME="$product_name" EXECUTABLE_NAME=CodexGaugeBeta PRODUCT_MODULE_NAME=CodexGauge \
+  PRODUCT_NAME="$product_name" EXECUTABLE_NAME=TokenTachBeta PRODUCT_MODULE_NAME=TokenTach \
   PRODUCT_BUNDLE_IDENTIFIER="$bundle_id" \
   INFOPLIST_KEY_CFBundleDisplayName="$product_name" \
   MARKETING_VERSION="$beta_version" CURRENT_PROJECT_VERSION="$beta_build" \
@@ -40,15 +40,15 @@ ditto "$output/DerivedData/Build/Products/Release/$product_name.app" "$app"
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" == "$bundle_id" ]]
 codesign --verify --deep --strict --verbose=2 "$app"
 uv run python "$project_root/Scripts/check-mac-package.py" "$app" --release --universal
-architectures="$(lipo -archs "$app/Contents/MacOS/CodexGaugeBeta")"
+architectures="$(lipo -archs "$app/Contents/MacOS/TokenTachBeta")"
 [[ " $architectures " == *' arm64 '* && " $architectures " == *' x86_64 '* ]]
 codesign -dvv "$app" > "$output/signature.txt" 2>&1
 
 cat > "$output/READ ME.txt" <<EOF
-CodexGauge Beta $beta_label (build $beta_build)
+TokenTach Beta $beta_label (build $beta_build)
 
-Drag CodexGauge Beta.app into Applications, then open it. It can run alongside
-CodexGauge.app. The beta uses β in place of the normal gauge icon by default.
+Drag TokenTach Beta.app into Applications, then open it. It can run alongside
+TokenTach.app. The beta uses β in place of the normal gauge icon by default.
 Menu Bar settings can switch back to the gauge or hide the icon; the preview
 matches these choices. Warning symbols still appear when needed.
 
@@ -73,7 +73,7 @@ mkdir "$staging"
 ditto "$app" "$staging/$product_name.app"
 cp "$output/READ ME.txt" "$staging/READ ME.txt"
 ln -s /Applications "$staging/Applications"
-dmg="$output/CodexGauge-Beta-$beta_label-universal.dmg"
+dmg="$output/TokenTach-Beta-$beta_label-universal.dmg"
 if /usr/sbin/diskutil image create from --help >/dev/null 2>&1; then
   /usr/sbin/diskutil image create from --format UDZO --volumeName "$product_name" "$staging" "$dmg"
 else

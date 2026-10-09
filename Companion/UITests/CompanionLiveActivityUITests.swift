@@ -235,11 +235,12 @@ final class CompanionLiveActivityUITests: XCTestCase {
         socket.resume(); defer { socket.cancel(with: .normalClosure, reason: nil) }
         let startedAt = Date.now.timeIntervalSince1970 - 120
         var includesSecondTask = false
+        var refreshAfter: TimeInterval = 120
         func publish(_ state: String?, activity: String? = nil, rate: Int = 1200, context: Int = 32) async throws {
             let now = Date.now.timeIntervalSince1970
             var payload: [String: Any] = ["schemaVersion": 1, "id": id, "name": "Activity Test Mac", "observedAt": now, "tasks": []]
             if let state {
-                payload["tasks"] = [["id": "activity-probe", "title": "Live Activity probe", "project": "CodexGauge tests",
+                payload["tasks"] = [["id": "activity-probe", "title": "Live Activity probe", "project": "TokenTach tests",
                     "state": state, "activity": activity ?? state, "tokensPerMinute": state == "running" ? rate : 0,
                     "contextPercent": context, "hasTokenObservation": true, "startedAt": startedAt,
                     "observedAt": now, "totalTokens": 100, "agentCount": 0, "eventAt": now]]
@@ -253,7 +254,7 @@ final class CompanionLiveActivityUITests: XCTestCase {
                 }
             }
             let data = try JSONSerialization.data(withJSONObject: payload)
-            try await publishRelayFixture(data, on: socket, base: base, id: id, publisher: publisher)
+            refreshAfter = try await publishRelayFixture(data, on: socket, base: base, id: id, publisher: publisher) ?? 120
         }
         try await publish(nil)
         let app = XCUIApplication()
@@ -296,8 +297,12 @@ final class CompanionLiveActivityUITests: XCTestCase {
         if follow.value as? String != "1" { follow.tap() }
         app.buttons["Done"].tap()
         addTeardownBlock { @MainActor in
-            app.activate()
-            if !app.navigationBars["Settings"].exists { app.buttons["Settings"].tap() }
+            // The lifecycle check can finish with a task sheet or the system
+            // cover sheet open. Relaunch the isolated test session at its root
+            // before restoring preferences; preserve its link until feed cleanup.
+            app.terminate(); app.launchArguments = ["-companionUITest"]; app.launch()
+            app.buttons["Settings"].tap()
+            XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
             let restoredCompleted = app.switches["Task completed"].switches.firstMatch
             if !restoredCompleted.isHittable { app.swipeUp() }
             if (restoredCompleted.value as? String == "1") != completedWasEnabled { restoredCompleted.tap() }
@@ -354,6 +359,12 @@ final class CompanionLiveActivityUITests: XCTestCase {
         // Verify a metrics-only update and a phase update while the app remains
         // suspended. A ticking system timer does not prove remote delivery.
         try await publish("running", activity: "Thinking", rate: 2400, context: 48)
+        if !card.staticTexts["48% context"].waitForExistence(timeout: 3) {
+            // APNs may defer priority 5. Follow the relay's one-shot deadline,
+            // just like the adaptive Mac, rather than polling every five seconds.
+            try await Task.sleep(for: .seconds(refreshAfter + 1))
+            try await publish("running", activity: "Thinking", rate: 2400, context: 48)
+        }
         XCTAssertTrue(card.staticTexts["48% context"].waitForExistence(timeout: 25), "Background delivery must refresh context.")
         XCTAssertTrue(card.staticTexts["2.4K tok/min"].exists, "Background delivery must refresh token rate.")
         XCTAssertTrue(card.staticTexts["Thinking"].exists, "Background delivery must refresh task phase.")
@@ -362,8 +373,12 @@ final class CompanionLiveActivityUITests: XCTestCase {
         metrics.name = "Remote Live Activity background metrics and phase"; metrics.lifetime = .keepAlways; add(metrics)
         // A routine metrics-only publication uses the replaceable, lower-cost
         // delivery path. Wait beyond its ordinary rate limit before publishing.
-        try await Task.sleep(for: .seconds(16))
+        try await Task.sleep(for: .seconds(61))
         try await publish("running", activity: "Thinking", rate: 3600, context: 55)
+        if !card.staticTexts["55% context"].waitForExistence(timeout: 3) {
+            try await Task.sleep(for: .seconds(refreshAfter + 1))
+            try await publish("running", activity: "Thinking", rate: 3600, context: 55)
+        }
         XCTAssertTrue(card.staticTexts["55% context"].waitForExistence(timeout: 25))
         XCTAssertTrue(card.staticTexts["3.6K tok/min"].exists)
         includesSecondTask = true
@@ -409,7 +424,11 @@ final class CompanionLiveActivityUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Task"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Live Activity probe"].exists)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Activity Test Mac")).firstMatch.exists)
-        XCTAssertTrue(app.staticTexts["Needs approval"].exists)
+        // Unlike the real Mac's reader task, this synthetic publisher advances
+        // only when publish() is called. Answer the newly opened viewer's refresh
+        // even if the feed hibernated while the system launched the app.
+        try await publish("needsApproval")
+        XCTAssertTrue(app.staticTexts["Needs approval"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["Approve"].exists)
         XCTAssertFalse(app.staticTexts["Collecting live activity…"].exists)
         let detail = XCTAttachment(screenshot: app.screenshot())

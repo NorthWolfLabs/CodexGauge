@@ -1,0 +1,885 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		79F3064538E5E4F665DE1380 /* Companion/Shared/CompanionStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC000000000000000000003 /* Companion/Shared/CompanionStorage.swift */; };
+		863D1B33B5BF01970740C8E7 /* Companion/Shared/CompanionFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC000000000000000000002 /* Companion/Shared/CompanionFixtures.swift */; };
+		B057D7E32CCDDEDD5E1C0C52 /* Companion/Shared/CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC000000000000000000001 /* Companion/Shared/CompanionModels.swift */; };
+		CCC100000000000000000001 /* Companion/Shared/CompanionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC000000000000000000001 /* Companion/Shared/CompanionModels.swift */; };
+		CCC100000000000000000002 /* Companion/Shared/CompanionFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC000000000000000000002 /* Companion/Shared/CompanionFixtures.swift */; };
+		CCC100000000000000000003 /* Companion/Shared/CompanionStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCC000000000000000000003 /* Companion/Shared/CompanionStorage.swift */; };
+		CDE100000000000000000001 /* Experiments/StorePreview/RuntimeVerification.swift in Sources */ = {isa = PBXBuildFile; fileRef = CDE000000000000000000001 /* Experiments/StorePreview/RuntimeVerification.swift */; };
+		E60CCA82C8D6F6F484FC358E /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 55656389E37C2B32F12B9C27 /* Cocoa.framework */; };
+		CDF100000000000000000002 /* FakeCodex.c in Sources */ = {isa = PBXBuildFile; fileRef = CDF100000000000000000003 /* FakeCodex.c */; };
+		CDF100000000000000000004 /* TokenTachTestPeer in Resources */ = {isa = PBXBuildFile; fileRef = CDF100000000000000000005 /* TokenTachTestPeer */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		5EECA0CC3038E6010058574B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5EECA0B63038E6000058574B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5EECA0BD3038E6000058574B;
+			remoteInfo = TokenTach;
+		};
+		5EECA0D63038E6010058574B /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5EECA0B63038E6000058574B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5EECA0BD3038E6000058574B;
+			remoteInfo = TokenTach;
+		};
+		CDF100000000000000000006 /* PBXContainerItemProxy */ = {isa = PBXContainerItemProxy; containerPortal = 5EECA0B63038E6000058574B; proxyType = 1; remoteGlobalIDString = CDF100000000000000000007; remoteInfo = TokenTachTestPeer; };
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		CDF100000000000000000001 /* Test helper */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 7;
+			files = (CDF100000000000000000004);
+			name = "Test helper";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		55656389E37C2B32F12B9C27 /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		5EECA0BE3038E6000058574B /* TokenTach.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TokenTach.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5EECA0CB3038E6010058574B /* TokenTachTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TokenTachTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		5EECA0D53038E6010058574B /* TokenTachUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TokenTachUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		93085AB51AEE291859935A4E /* TokenTachStorePreview.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; name = TokenTachStorePreview.app; path = "TokenTach Store Preview.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		CCC000000000000000000001 /* Companion/Shared/CompanionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Companion/Shared/CompanionModels.swift; sourceTree = SOURCE_ROOT; };
+		CCC000000000000000000002 /* Companion/Shared/CompanionFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Companion/Shared/CompanionFixtures.swift; sourceTree = SOURCE_ROOT; };
+		CCC000000000000000000003 /* Companion/Shared/CompanionStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Companion/Shared/CompanionStorage.swift; sourceTree = SOURCE_ROOT; };
+		CDE000000000000000000001 /* Experiments/StorePreview/RuntimeVerification.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Experiments/StorePreview/RuntimeVerification.swift; sourceTree = SOURCE_ROOT; };
+		CDF100000000000000000003 /* FakeCodex.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = Experiments/TestHelpers/FakeCodex.c; sourceTree = SOURCE_ROOT; };
+		CDF100000000000000000005 /* TokenTachTestPeer */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; path = TokenTachTestPeer; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		5EECA0C03038E6000058574B /* TokenTach */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TokenTach;
+			sourceTree = "<group>";
+		};
+		5EECA0CE3038E6010058574B /* TokenTachTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TokenTachTests;
+			sourceTree = "<group>";
+		};
+		5EECA0D83038E6010058574B /* TokenTachUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TokenTachUITests;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5EECA0BB3038E6000058574B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5EECA0C83038E6010058574B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5EECA0D23038E6010058574B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		714DC846759D5D0B31FCF33F /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E60CCA82C8D6F6F484FC358E /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2E09146C094EB430A25A54FA /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				55656389E37C2B32F12B9C27 /* Cocoa.framework */,
+			);
+			name = "OS X";
+			sourceTree = "<group>";
+		};
+		5EECA0B53038E6000058574B = {
+			isa = PBXGroup;
+			children = (
+				CDE000000000000000000001 /* Experiments/StorePreview/RuntimeVerification.swift */,
+				CDF100000000000000000003 /* FakeCodex.c */,
+				5EECA0C03038E6000058574B /* TokenTach */,
+				CCC000000000000000000003 /* Companion/Shared/CompanionStorage.swift */,
+				CCC000000000000000000002 /* Companion/Shared/CompanionFixtures.swift */,
+				CCC000000000000000000001 /* Companion/Shared/CompanionModels.swift */,
+				5EECA0CE3038E6010058574B /* TokenTachTests */,
+				5EECA0D83038E6010058574B /* TokenTachUITests */,
+				5EECA0BF3038E6000058574B /* Products */,
+				D6909195B428D856CAFD9D49 /* Frameworks */,
+			);
+			sourceTree = "<group>";
+		};
+		5EECA0BF3038E6000058574B /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5EECA0BE3038E6000058574B /* TokenTach.app */,
+				5EECA0CB3038E6010058574B /* TokenTachTests.xctest */,
+				5EECA0D53038E6010058574B /* TokenTachUITests.xctest */,
+				93085AB51AEE291859935A4E /* TokenTachStorePreview.app */,
+				CDF100000000000000000005 /* TokenTachTestPeer */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		D6909195B428D856CAFD9D49 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				2E09146C094EB430A25A54FA /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5EECA0BD3038E6000058574B /* TokenTach */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5EECA0DD3038E6010058574B /* Build configuration list for PBXNativeTarget "TokenTach" */;
+			buildPhases = (
+				5EECA0BA3038E6000058574B /* Sources */,
+				5EECA0BB3038E6000058574B /* Frameworks */,
+				5EECA0BC3038E6000058574B /* Resources */,
+				CDF000000000000000000001 /* Container migration */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5EECA0C03038E6000058574B /* TokenTach */,
+			);
+			name = TokenTach;
+			packageProductDependencies = (
+			);
+			productName = TokenTach;
+			productReference = 5EECA0BE3038E6000058574B /* TokenTach.app */;
+			productType = "com.apple.product-type.application";
+		};
+		5EECA0CA3038E6010058574B /* TokenTachTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5EECA0E03038E6010058574B /* Build configuration list for PBXNativeTarget "TokenTachTests" */;
+			buildPhases = (
+				5EECA0C73038E6010058574B /* Sources */,
+				5EECA0C83038E6010058574B /* Frameworks */,
+				5EECA0C93038E6010058574B /* Resources */,
+				CDF100000000000000000001 /* Test helper */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5EECA0CD3038E6010058574B /* PBXTargetDependency */,
+				CDF100000000000000000008 /* Test helper dependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5EECA0CE3038E6010058574B /* TokenTachTests */,
+			);
+			name = TokenTachTests;
+			packageProductDependencies = (
+			);
+			productName = TokenTachTests;
+			productReference = 5EECA0CB3038E6010058574B /* TokenTachTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		5EECA0D43038E6010058574B /* TokenTachUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5EECA0E33038E6010058574B /* Build configuration list for PBXNativeTarget "TokenTachUITests" */;
+			buildPhases = (
+				5EECA0D13038E6010058574B /* Sources */,
+				5EECA0D23038E6010058574B /* Frameworks */,
+				5EECA0D33038E6010058574B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5EECA0D73038E6010058574B /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				5EECA0D83038E6010058574B /* TokenTachUITests */,
+			);
+			name = TokenTachUITests;
+			packageProductDependencies = (
+			);
+			productName = TokenTachUITests;
+			productReference = 5EECA0D53038E6010058574B /* TokenTachUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		957ED598392D9718068575B8 /* TokenTachStorePreview */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EC9ED6348E5AA4CFD853DB1C /* Build configuration list for PBXNativeTarget "TokenTachStorePreview" */;
+			buildPhases = (
+				A84CA19E9283825A0592747D /* Sources */,
+				714DC846759D5D0B31FCF33F /* Frameworks */,
+				FFFEF1F74558A3AFDF5EB249 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				5EECA0C03038E6000058574B /* TokenTach */,
+			);
+			name = TokenTachStorePreview;
+			packageProductDependencies = (
+			);
+			productName = TokenTachStorePreview;
+			productReference = 93085AB51AEE291859935A4E /* TokenTachStorePreview.app */;
+			productType = "com.apple.product-type.application";
+		};
+		CDF100000000000000000007 /* TokenTachTestPeer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CDF100000000000000000009;
+			buildPhases = (CDF10000000000000000000A /* Sources */);
+			buildRules = ();
+			dependencies = ();
+			name = TokenTachTestPeer;
+			productName = TokenTachTestPeer;
+			productReference = CDF100000000000000000005;
+			productType = "com.apple.product-type.tool";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5EECA0B63038E6000058574B /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2600;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					5EECA0BD3038E6000058574B = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					5EECA0CA3038E6010058574B = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = 5EECA0BD3038E6000058574B;
+					};
+					5EECA0D43038E6010058574B = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = 5EECA0BD3038E6000058574B;
+					};
+				};
+			};
+			buildConfigurationList = 5EECA0B93038E6000058574B /* Build configuration list for PBXProject "TokenTach" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5EECA0B53038E6000058574B;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5EECA0BF3038E6000058574B /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5EECA0BD3038E6000058574B /* TokenTach */,
+				5EECA0CA3038E6010058574B /* TokenTachTests */,
+				5EECA0D43038E6010058574B /* TokenTachUITests */,
+				957ED598392D9718068575B8 /* TokenTachStorePreview */,
+				CDF100000000000000000007 /* TokenTachTestPeer */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		5EECA0BC3038E6000058574B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5EECA0C93038E6010058574B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5EECA0D33038E6010058574B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FFFEF1F74558A3AFDF5EB249 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		CDF000000000000000000001 /* Container migration */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = ();
+			inputPaths = ("$(SRCROOT)/Scripts/write-container-migration.sh");
+			outputPaths = ("$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/container-migration.plist");
+			name = "Container migration";
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/zsh;
+			shellScript = "\"$SRCROOT/Scripts/write-container-migration.sh\"";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5EECA0BA3038E6000058574B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CCC100000000000000000003 /* Companion/Shared/CompanionStorage.swift in Sources */,
+				CCC100000000000000000002 /* Companion/Shared/CompanionFixtures.swift in Sources */,
+				CCC100000000000000000001 /* Companion/Shared/CompanionModels.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5EECA0C73038E6010058574B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		5EECA0D13038E6010058574B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A84CA19E9283825A0592747D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CDE100000000000000000001 /* Experiments/StorePreview/RuntimeVerification.swift in Sources */,
+				79F3064538E5E4F665DE1380 /* Companion/Shared/CompanionStorage.swift in Sources */,
+				863D1B33B5BF01970740C8E7 /* Companion/Shared/CompanionFixtures.swift in Sources */,
+				B057D7E32CCDDEDD5E1C0C52 /* Companion/Shared/CompanionModels.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CDF10000000000000000000A /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (CDF100000000000000000002); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5EECA0CD3038E6010058574B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5EECA0BD3038E6000058574B /* TokenTach */;
+			targetProxy = 5EECA0CC3038E6010058574B /* PBXContainerItemProxy */;
+		};
+		5EECA0D73038E6010058574B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5EECA0BD3038E6000058574B /* TokenTach */;
+			targetProxy = 5EECA0D63038E6010058574B /* PBXContainerItemProxy */;
+		};
+		CDF100000000000000000008 /* Test helper dependency */ = {isa = PBXTargetDependency; target = CDF100000000000000000007; targetProxy = CDF100000000000000000006; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		5EECA0DB3038E6010058574B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		5EECA0DC3038E6010058574B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_COVERAGE_MAPPING = NO;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_CODE_COVERAGE = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_CODE_COVERAGE = NO;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		5EECA0DE3038E6010058574B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Distribution/Store.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 10;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 North Wolf Labs LLC";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		5EECA0DF3038E6010058574B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_COVERAGE_MAPPING = NO;
+				CLANG_ENABLE_CODE_COVERAGE = NO;
+				CODE_SIGN_ENTITLEMENTS = Distribution/Store.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 10;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				ENABLE_CODE_COVERAGE = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 North Wolf Labs LLC";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		5EECA0E13038E6010058574B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGaugeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TokenTach.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TokenTach";
+			};
+			name = Debug;
+		};
+		5EECA0E23038E6010058574B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGaugeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/TokenTach.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/TokenTach";
+			};
+			name = Release;
+		};
+		5EECA0E43038E6010058574B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGaugeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = TokenTach;
+			};
+			name = Debug;
+		};
+		5EECA0E53038E6010058574B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 10;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGaugeUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+				TEST_TARGET_NAME = TokenTach;
+			};
+			name = Release;
+		};
+		86547E4BC54ECAB14FDE95A8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Distribution/Store.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application: North Wolf Labs LLC (ALPX923Y54)";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 10;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				EXECUTABLE_NAME = TokenTachStorePreview;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "TokenTach Store Preview";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 North Wolf Labs LLC";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.northwolflabs.CodexGauge.store-preview";
+				PRODUCT_MODULE_NAME = TokenTach;
+				PRODUCT_NAME = "TokenTach Store Preview";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) STORE_PREVIEW_VERIFICATION";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		D43F7B11A99E76ED291471BF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = "$(ARCHS_STANDARD)";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CLANG_COVERAGE_MAPPING = NO;
+				CLANG_ENABLE_CODE_COVERAGE = NO;
+				CODE_SIGN_ENTITLEMENTS = Distribution/Store.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application: North Wolf Labs LLC (ALPX923Y54)";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 10;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_CODE_COVERAGE = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readwrite;
+				EXECUTABLE_NAME = TokenTachStorePreview;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "TokenTach Store Preview";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "Copyright © 2026 North Wolf Labs LLC";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.2.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.northwolflabs.CodexGauge.store-preview";
+				PRODUCT_MODULE_NAME = TokenTach;
+				PRODUCT_NAME = "TokenTach Store Preview";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) STORE_PREVIEW_VERIFICATION";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		CDF10000000000000000000B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Experiments/TestHelpers/TestPeer.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_TESTING_SEARCH_PATHS = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge.test-peer;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		CDF10000000000000000000C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Experiments/TestHelpers/TestPeer.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = ALPX923Y54;
+				ENABLE_TESTING_SEARCH_PATHS = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.4;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.northwolflabs.CodexGauge.test-peer;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		5EECA0B93038E6000058574B /* Build configuration list for PBXProject "TokenTach" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5EECA0DB3038E6010058574B /* Debug */,
+				5EECA0DC3038E6010058574B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5EECA0DD3038E6010058574B /* Build configuration list for PBXNativeTarget "TokenTach" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5EECA0DE3038E6010058574B /* Debug */,
+				5EECA0DF3038E6010058574B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5EECA0E03038E6010058574B /* Build configuration list for PBXNativeTarget "TokenTachTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5EECA0E13038E6010058574B /* Debug */,
+				5EECA0E23038E6010058574B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		5EECA0E33038E6010058574B /* Build configuration list for PBXNativeTarget "TokenTachUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5EECA0E43038E6010058574B /* Debug */,
+				5EECA0E53038E6010058574B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EC9ED6348E5AA4CFD853DB1C /* Build configuration list for PBXNativeTarget "TokenTachStorePreview" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D43F7B11A99E76ED291471BF /* Release */,
+				86547E4BC54ECAB14FDE95A8 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CDF100000000000000000009 /* Test peer configurations */ = {isa = XCConfigurationList; buildConfigurations = (CDF10000000000000000000B, CDF10000000000000000000C); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+
+	};
+	rootObject = 5EECA0B63038E6000058574B /* Project object */;
+}

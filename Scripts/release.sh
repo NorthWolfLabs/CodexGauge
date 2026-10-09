@@ -3,9 +3,9 @@ set -euo pipefail
 
 project_root="${0:A:h:h}"
 team_id="ALPX923Y54"
-product_name="CodexGauge"
-project="$project_root/CodexGauge.xcodeproj"
-scheme="CodexGauge"
+product_name="TokenTach"
+project="$project_root/TokenTach.xcodeproj"
+scheme="TokenTach"
 universal_architectures=(arm64 x86_64)
 tag="${RELEASE_TAG:-$(git -C "$project_root" describe --tags --exact-match 2>/dev/null || true)}"
 version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION = ([^;]+);/\1/p' "$project/project.pbxproj" | sort -u | head -n 1)"
@@ -107,7 +107,7 @@ run_tests() {
       ARCHS="$architecture" ONLY_ACTIVE_ARCH=NO \
       CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= 2>&1 | tee "$test_log"
     /usr/bin/log show --start "$started" --style compact \
-      --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
+      --predicate 'process == "TokenTach" OR process == "TokenTachUITests-Runner"' \
       > "$runtime_log" || true
     reject_release_diagnostics "$test_log"
     reject_release_diagnostics "$runtime_log" xctest-runtime

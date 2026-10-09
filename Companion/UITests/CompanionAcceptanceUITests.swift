@@ -246,7 +246,7 @@ struct AcceptanceFeed: Sendable {
             "credits": [["id": "codex", "name": "Codex", "hasCredits": true, "unlimited": false, "balance": creditBalance]]]
         if let email { account["email"] = email; account["accountType"] = "chatgpt" }
         let payload: [String: Any] = ["schemaVersion": 1, "id": id, "name": name, "observedAt": observedAt, "account": account,
-            "tasks": [["id": "shared-task", "title": title, "project": "CodexGauge tests", "state": state,
+            "tasks": [["id": "shared-task", "title": title, "project": "TokenTach tests", "state": state,
                        "activity": activity ?? state, "tokensPerMinute": state == "running" ? 1200 : 0,
                        "totalTokens": 100, "agentCount": 0, "eventAt": observedAt]]]
         let data = try JSONSerialization.data(withJSONObject: payload)
@@ -272,7 +272,8 @@ struct AcceptanceFeed: Sendable {
 
 /// Synthetic publisher shared by the integration UI checks. Refresh requests are
 /// display-only controls; only an accepted frame acknowledges a publication.
-func publishRelayFixture(_ data: Data, on socket: URLSessionWebSocketTask, base: URL, id: String, publisher: String) async throws {
+@discardableResult
+func publishRelayFixture(_ data: Data, on socket: URLSessionWebSocketTask, base: URL, id: String, publisher: String) async throws -> TimeInterval? {
     try await socket.send(.string(String(decoding: data, as: UTF8.self)))
     while true {
         let message = try await socket.receive()
@@ -287,6 +288,7 @@ func publishRelayFixture(_ data: Data, on socket: URLSessionWebSocketTask, base:
     request.setValue("Bearer \(publisher)", forHTTPHeaderField: "Authorization")
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONSerialization.data(withJSONObject: ["observations": [JSONSerialization.jsonObject(with: data)]])
-    let (_, response) = try await URLSession.shared.data(for: request)
+    let (reply, response) = try await URLSession.shared.data(for: request)
     guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
+    return (try JSONSerialization.jsonObject(with: reply) as? [String: Any])?["refreshAfter"] as? TimeInterval
 }

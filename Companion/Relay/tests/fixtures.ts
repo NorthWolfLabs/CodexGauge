@@ -25,7 +25,7 @@ function connect(index: number, id: string) {
         { id: 'session', name: 'Session', remainingPercent: 83, resetsAt: now + 8000 },
         { id: 'weekly', name: 'Weekly', remainingPercent: 64, resetsAt: now + 280000 }], bankedResets: 2, dailyTokens: [] },
       tasks: [{ id: `task-${index}`, title: index === 0 ? 'Live relay task' : 'Review approval on Mac mini',
-        project: 'CodexGauge', state: index === 0 ? 'running' : 'needsApproval',
+        project: 'TokenTach', state: index === 0 ? 'running' : 'needsApproval',
         activity: `Live update ${++count}`, tokensPerMinute: 2400 + count, totalTokens: 1000 + count,
         startedAt: now - 180, agentCount: 0 },
         { id: `done-${index}`, title: 'Completed follow-up ready task', state: 'completed', activity: 'Completed', tokensPerMinute: 0, totalTokens: 20, agentCount: 0 }],

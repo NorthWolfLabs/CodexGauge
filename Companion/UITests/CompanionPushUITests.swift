@@ -69,7 +69,7 @@ final class CompanionPushUITests: XCTestCase {
             func publish(_ state: String, activity: String? = nil) async throws {
                 let now = Date().timeIntervalSince1970
                 let payload: [String: Any] = ["schemaVersion": 1, "id": id, "name": "Push Test Mac", "observedAt": now,
-                    "tasks": [["id": "push-verification", "title": taskTitle, "project": "CodexGauge tests",
+                    "tasks": [["id": "push-verification", "title": taskTitle, "project": "TokenTach tests",
                         "state": state, "activity": activity ?? state, "tokensPerMinute": 0, "totalTokens": 10, "agentCount": 0, "eventAt": now]]]
                 let data = try JSONSerialization.data(withJSONObject: payload)
                 try await publishRelayFixture(data, on: socket, base: base, id: id, publisher: publisher)

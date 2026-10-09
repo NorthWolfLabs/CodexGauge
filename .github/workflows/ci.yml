@@ -23,7 +23,7 @@ jobs:
           persist-credentials: false
       - name: Select required stable Xcode
         run: |
-          candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
+          candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_27.0*.app' -print -quit)"
           if [[ -n "$candidate" ]]; then sudo xcode-select --switch "$candidate/Contents/Developer"; fi
           ./Scripts/check-toolchain.sh
       - name: Set up uv for repository checks
@@ -38,13 +38,13 @@ jobs:
           set -euo pipefail
           derived="$RUNNER_TEMP/UniversalDerivedData"
           xcodebuild build \
-            -project CodexGauge.xcodeproj \
-            -scheme CodexGauge \
+            -project TokenTach.xcodeproj \
+            -scheme TokenTach \
             -configuration Release \
             -destination 'generic/platform=macOS' \
             -derivedDataPath "$derived" \
             ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
-          binary="$derived/Build/Products/Release/CodexGauge.app/Contents/MacOS/CodexGauge"
+          binary="$derived/Build/Products/Release/TokenTach.app/Contents/MacOS/TokenTach"
           archs="$(lipo -archs "$binary")"
           [[ " $archs " == *' arm64 '* && " $archs " == *' x86_64 '* && "$(wc -w <<< "$archs" | tr -d ' ')" == 2 ]]
 
@@ -83,8 +83,8 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "${{ matrix.current_toolchain }}" == true ]]; then
-            candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26.6*.app' -print -quit)"
-            [[ -n "$candidate" ]] || { print -u2 'Xcode 26.6 is unavailable'; exit 1; }
+            candidate="$(find /Applications -maxdepth 1 -type d -name 'Xcode_27.0*.app' -print -quit)"
+            [[ -n "$candidate" ]] || { print -u2 'Xcode 27.0 is unavailable'; exit 1; }
             sudo xcode-select --switch "$candidate/Contents/Developer"
             ./Scripts/check-toolchain.sh
           else
@@ -97,32 +97,32 @@ jobs:
         shell: zsh {0}
         run: |
           set -euo pipefail
-          result="$RUNNER_TEMP/CodexGauge-${{ matrix.id }}.xcresult"
+          result="$RUNNER_TEMP/TokenTach-${{ matrix.id }}.xcresult"
           log_file="$RUNNER_TEMP/xcodebuild-${{ matrix.id }}.log"
           started="$(date '+%Y-%m-%d %H:%M:%S')"
           xcodebuild test \
-            -project CodexGauge.xcodeproj \
-            -scheme CodexGauge \
+            -project TokenTach.xcodeproj \
+            -scheme TokenTach \
             -configuration Debug \
             -destination 'platform=macOS,arch=${{ matrix.arch }}' \
             -resultBundlePath "$result" \
             ARCHS='${{ matrix.arch }}' ONLY_ACTIVE_ARCH=NO \
             CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= 2>&1 | tee "$log_file"
           xcodebuild build \
-            -project CodexGauge.xcodeproj \
-            -scheme CodexGauge \
+            -project TokenTach.xcodeproj \
+            -scheme TokenTach \
             -configuration Release \
             -destination 'platform=macOS,arch=${{ matrix.arch }}' \
             ARCHS='${{ matrix.arch }}' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$log_file"
           xcodebuild archive \
-            -project CodexGauge.xcodeproj \
-            -scheme CodexGauge \
+            -project TokenTach.xcodeproj \
+            -scheme TokenTach \
             -configuration Release \
             -destination 'generic/platform=macOS' \
-            -archivePath "$RUNNER_TEMP/CodexGauge-unsigned.xcarchive" \
+            -archivePath "$RUNNER_TEMP/TokenTach-unsigned.xcarchive" \
             ARCHS='${{ matrix.arch }}' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO 2>&1 | tee -a "$log_file"
           /usr/bin/log show --start "$started" --style compact \
-            --predicate 'process == "CodexGauge" OR process == "CodexGaugeUITests-Runner"' \
+            --predicate 'process == "TokenTach" OR process == "TokenTachUITests-Runner"' \
             > "$RUNNER_TEMP/runtime-${{ matrix.id }}.log" || true
           # Xcode 26.6 emits this internal testmanager QoS diagnostic when it
           # attaches a hosted unit-test bundle. It reproduces with all product UI
@@ -144,7 +144,7 @@ jobs:
         with:
           name: failure-${{ matrix.id }}
           path: |
-            ${{ runner.temp }}/CodexGauge-${{ matrix.id }}.xcresult
+            ${{ runner.temp }}/TokenTach-${{ matrix.id }}.xcresult
             ${{ runner.temp }}/xcodebuild-${{ matrix.id }}.log
             ${{ runner.temp }}/runtime-${{ matrix.id }}.log
           if-no-files-found: ignore

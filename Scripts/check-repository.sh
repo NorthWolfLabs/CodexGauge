@@ -11,13 +11,18 @@ required=(
   Scripts/release.sh Scripts/check-toolchain.sh Scripts/performance-check.sh
   Scripts/performance-probe.swift Scripts/package-store.sh Scripts/check-mac-package.py Scripts/check-store-export.py
   Scripts/write-container-migration.sh Scripts/check-tracked-files.py Distribution/Store.entitlements
-  Distribution/AppStoreExportOptions.plist CodexGauge/PrivacyInfo.xcprivacy
-  CodexGauge/AppIcon.icon/icon.json
-  CodexGauge/AppIcon.icon/Assets/01-dial.svg
-  CodexGauge/AppIcon.icon/Assets/02-track.svg
-  CodexGauge/AppIcon.icon/Assets/03-progress.svg
-  CodexGauge/AppIcon.icon/Assets/04-needle.svg
-  CodexGauge.xcodeproj/xcshareddata/xcschemes/CodexGauge.xcscheme
+  Scripts/package-mobile.sh Scripts/check-mobile-package.py
+  Companion/Shared/PrivacyInfo.xcprivacy Companion/iOS/CompanionDistribution.entitlements
+  Companion/iOS/CompanionDistributionWithDeviceName.entitlements Companion/iOS/CompanionPushWithDeviceName.entitlements
+  Companion/TokenTachMobile.xcodeproj/xcshareddata/xcschemes/TokenTachMobile.xcscheme
+  Distribution/TestFlight.md Distribution/Device-Name-Request.md
+  Distribution/AppStoreExportOptions.plist TokenTach/PrivacyInfo.xcprivacy
+  TokenTach/AppIcon.icon/icon.json
+  TokenTach/AppIcon.icon/Assets/01-dial.svg
+  TokenTach/AppIcon.icon/Assets/02-track.svg
+  TokenTach/AppIcon.icon/Assets/03-progress.svg
+  TokenTach/AppIcon.icon/Assets/04-needle.svg
+  TokenTach.xcodeproj/xcshareddata/xcschemes/TokenTach.xcscheme
 )
 for required_file in "${required[@]}"; do
   [[ -f "$required_file" ]] || { print -u2 "Missing required repository file: $required_file"; exit 1; }
@@ -27,7 +32,7 @@ tracked_artifacts="$(git ls-files | grep -E '(^|/)(DerivedData|TestArtifacts|xcu
 [[ -z "$tracked_artifacts" ]] || { print -u2 "Generated or sensitive files are tracked:\n$tracked_artifacts"; exit 1; }
 uv run --no-project python Scripts/check-tracked-files.py
 
-project_file="CodexGauge.xcodeproj/project.pbxproj"
+project_file="TokenTach.xcodeproj/project.pbxproj"
 object_version="$(sed -nE 's/^[[:space:]]*objectVersion = ([0-9]+);/\1/p' "$project_file")"
 preferred_object_version="$(sed -nE 's/^[[:space:]]*preferredProjectObjectVersion = ([0-9]+);/\1/p' "$project_file")"
 [[ -n "$object_version" && "$object_version" == "$preferred_object_version" ]] || {
@@ -96,7 +101,7 @@ if grep -REn '(DEVELOPER_ID_P12_BASE64|DEVELOPER_ID_P12_PASSWORD|ASC_API_KEY_P8_
 fi
 
 public_release_block="$(sed -n '/gh release create/,/--draft/p' .github/workflows/release.yml)"
-[[ "$public_release_block" == *'CodexGauge-$RELEASE_TAG-universal.dmg'* ]] \
+[[ "$public_release_block" == *'TokenTach-$RELEASE_TAG-universal.dmg'* ]] \
   || { print -u2 'The public release must include the versioned Universal 2 DMG.'; exit 1; }
 [[ "$public_release_block" == *'$root/SHA256SUMS'* ]] \
   || { print -u2 'The public release must include SHA256SUMS.'; exit 1; }
@@ -111,5 +116,5 @@ grep -Fq 'macos-15-intel' .github/workflows/release.yml
 grep -Fq 'Universal 2' README.md
 
 jq -e '.sampleSeconds == 300 and .warmupSeconds == 60 and (.scenarios | length == 5)' Performance/Budgets.json >/dev/null
-zsh -n Scripts/release.sh Scripts/check-toolchain.sh Scripts/check-repository.sh Scripts/performance-check.sh Scripts/package-store.sh Scripts/write-container-migration.sh
+zsh -n Scripts/release.sh Scripts/check-toolchain.sh Scripts/check-repository.sh Scripts/performance-check.sh Scripts/package-store.sh Scripts/package-mobile.sh Scripts/write-container-migration.sh
 print "Repository checks passed."

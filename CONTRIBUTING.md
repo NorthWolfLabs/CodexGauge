@@ -1,6 +1,6 @@
-# Contributing to CodexGauge
+# Contributing to TokenTach
 
-Thank you for helping improve CodexGauge.
+Thank you for helping improve TokenTach.
 
 ## Before opening a change
 
@@ -10,7 +10,7 @@ Thank you for helping improve CodexGauge.
 
 ## Development environment
 
-CodexGauge supports Apple-silicon and Intel development Macs running macOS 14.4 or later. Release work requires the exact stable Xcode release recorded in [.xcode-version](.xcode-version). Confirm it with:
+TokenTach supports Apple-silicon and Intel development Macs running macOS 14.4 or later. Release work requires the exact stable Xcode release recorded in [.xcode-version](.xcode-version). Confirm it with:
 
 ```sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./Scripts/check-toolchain.sh
@@ -19,12 +19,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./Scripts/check-toolcha
 Build and test with:
 
 ```sh
-xcodebuild build -project CodexGauge.xcodeproj -scheme CodexGauge \
+xcodebuild build -project TokenTach.xcodeproj -scheme TokenTach \
   -configuration Release -destination 'generic/platform=macOS' \
   ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO
 
 architecture="$(uname -m)"
-xcodebuild test -project CodexGauge.xcodeproj -scheme CodexGauge \
+xcodebuild test -project TokenTach.xcodeproj -scheme TokenTach \
   -destination "platform=macOS,arch=$architecture" ARCHS="$architecture" \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
 ```

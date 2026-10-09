@@ -56,6 +56,24 @@ import UserNotifications
             isPreview = true
             var fixtures = CompanionFixtures.snapshots()
             if ProcessInfo.processInfo.arguments.contains("-companionSingleDeviceDemo") { fixtures = Array(fixtures.prefix(1)) }
+            if ProcessInfo.processInfo.arguments.contains("-companionTaskLayoutDemo") {
+                fixtures = Array(fixtures.prefix(1))
+                let now = Date.now
+                fixtures[0].tasks[0].title = "output"
+                fixtures[0].tasks[0].project = "Computer"
+                fixtures[0].tasks[0].contextPercent = 67
+                fixtures[0].tasks[0].observedAt = now.addingTimeInterval(-3600)
+                fixtures[0].tasks[0].startedAt = now.addingTimeInterval(-3943)
+                fixtures[0].tasks[1] = fixtures[0].tasks[0]
+                fixtures[0].tasks[1].id = "task2"
+                fixtures[0].tasks[1].title = "Review a very long task title with Unicode 🧑🏽‍💻 and an unbroken identifier ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+                fixtures[0].tasks[1].project = "A project with an unusually long name"
+                fixtures[0].tasks[1].state = .running
+                fixtures[0].tasks[1].activity = "Using a tool with a long descriptive name"
+                fixtures[0].tasks[1].observedAt = now
+                fixtures[0].tasks[1].startedAt = now.addingTimeInterval(-260000)
+                fixtures[0].tasks[1].metrics?.contextIncludesAgent = true
+            }
             if ProcessInfo.processInfo.arguments.contains("-companionSinglePointDemo") {
                 for index in fixtures.indices {
                     let days = fixtures[index].account?.dailyTokens ?? []

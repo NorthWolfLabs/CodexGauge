@@ -26,6 +26,10 @@ import Testing
     let link = CompanionLink(id: UUID().uuidString, server: URL(string: "https://relay.example.com")!,
                              token: String(repeating: "a", count: 64), name: "Mac")
     #expect(try CompanionLink(url: link.shareURL).token == link.token)
+    #expect(link.shareURL.scheme == "tokentach")
+    var legacy = URLComponents(url: link.shareURL, resolvingAgainstBaseURL: false)!
+    legacy.scheme = "codexgauge"
+    #expect(try CompanionLink(url: legacy.url!).token == link.token)
     #expect(link.shareURL.query?.contains(link.token) == false)
     #expect(throws: (any Error).self) { try CompanionLink(url: URL(string: "codexgauge://publish")!) }
     #expect(!CompanionLink.validServer(URL(string: "https://secret@example.com")!))

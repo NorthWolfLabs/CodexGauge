@@ -1,6 +1,6 @@
 # Mac App Store packaging
 
-The main `CodexGauge` target now uses App Sandbox in Debug and Release. Beta packaging uses that same target. The dashboard, menu bar, allowances, tasks, activity, notifications and Devices settings share the current source; there is no separate Store UI. `CodexGaugeStorePreview` remains an isolated diagnostic identity.
+The main `TokenTach` target now uses App Sandbox in Debug and Release. Beta packaging uses that same target. The dashboard, menu bar, allowances, tasks, activity, notifications and Devices settings share the current source; there is no separate Store UI. `TokenTachStorePreview` remains an isolated diagnostic identity.
 
 The signed app permits outbound network connections, user-selected read/write files and app-scoped bookmarks. It contains no external updater or update-feed keys. Choose the Codex data folder and the OpenAI-signed installed helper once in General settings. The existing bookmark implementation retains those grants across launches; a path preference alone does not grant access. The helper needs write access to its own SQLite state. No full-disk or sandbox-exception entitlement is used in Release.
 
@@ -17,7 +17,7 @@ Export uses `app-store-connect`, `destination=export` and the existing team/bund
 
 ## Existing app state
 
-The build generates Apple's `container-migration.plist` for the product identity. Stable builds copy only `CodexGauge` support files; beta builds copy only `CodexGauge Beta` support files. Preferences use `${BundleId}`. macOS performs this migration when it first creates the container. The identity is preserved, and the existing Keychain service is unchanged. The manifest excludes the user's Codex folder and authentication files.
+The build generates Apple's `container-migration.plist` for the product identity. Stable builds retain `CodexGauge` support files; beta builds retain `CodexGauge Beta` support files. These legacy folder names intentionally survive the product rename. Preferences use `${BundleId}`. macOS performs this migration when it first creates the container. The identity is preserved, and the existing Keychain service is unchanged. The manifest excludes the user's Codex folder and authentication files.
 
 Existing containers are not deleted to rerun migration. Migration, saved grants and Keychain continuity need verification on an actual upgrade as well as a clean installation. A valid Keychain item may still be unavailable if its older signing access rules differ; a distribution-signing check is separate from a local development upgrade.
 

@@ -33,11 +33,11 @@ struct CompanionHome: View {
                         if store.accounts.isEmpty {
                             if store.links.isEmpty {
                                 ContentUnavailableView("Link your Mac", systemImage: "laptopcomputer.and.iphone",
-                                    description: Text("Add a viewing link from CodexGauge on your Mac to see usage and tasks."))
+                                    description: Text("Add a viewing link from TokenTach on your Mac to see usage and tasks."))
                                 Button("Link a Mac") { showsPairing = true }
                             } else {
                                 ContentUnavailableView("Waiting for usage", systemImage: "gauge.with.needle",
-                                    description: Text("Keep CodexGauge running and connected to Codex on your Mac. Task updates can arrive before account usage."))
+                                    description: Text("Keep TokenTach running and connected to Codex on your Mac. Task updates can arrive before account usage."))
                             }
                         }
                         accountPickerSection
@@ -119,7 +119,7 @@ struct CompanionHome: View {
             } else { overviewPath = []; selectedTab = .overview }
         }
         .onOpenURL { url in
-            if url.scheme == "codexgauge", url.host == "tasks" {
+            if ["tokentach", "codexgauge"].contains(url.scheme ?? ""), url.host == "tasks" {
                 let macID = url.lastPathComponent.lowercased()
                 guard store.links.contains(where: { $0.id == macID }) else { return }
                 let taskID = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "task" })?.value
@@ -153,6 +153,8 @@ struct CompanionHome: View {
         NavigationStack {
             Form {
                 Section {
+                    LabeledContent("This device", value: UIDevice.current.name)
+                        .accessibilityIdentifier("companion.deviceName")
                     Button("Scan QR code", systemImage: "qrcode.viewfinder") { Task { await beginScan() } }
                         .disabled(store.isPairing)
                     PasteButton(payloadType: String.self) { strings in connectPairingLink(strings.first ?? "") }
@@ -160,7 +162,7 @@ struct CompanionHome: View {
                         .accessibilityLabel("Paste pairing link")
                         .accessibilityIdentifier("companion.pasteLink")
                 } footer: {
-                    Text("On your Mac, open CodexGauge Settings → Devices → Pair iPhone. Scan the code or copy its link and tap Paste.")
+                    Text("On your Mac, open TokenTach Settings → Devices → Pair iPhone. Scan the code or copy its link and tap Paste.")
                 }
                 if store.isPairing {
                     Section { ProgressView("Connecting to Mac…") }
@@ -169,7 +171,7 @@ struct CompanionHome: View {
                     Section { Text(error).foregroundStyle(.red).lineLimit(nil).fixedSize(horizontal: false, vertical: true) }
                 }
                 Section {
-                    Text("This gives your iPhone read-only access to account email, usage and task names.")
+                    Text("This gives your iPhone read-only access to account email, usage and task names. Its name appears in Devices on your Mac so you can identify and remove its access.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
@@ -199,7 +201,7 @@ struct CompanionHome: View {
         scannerError = nil; store.error = nil
         guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
               (try? CompanionLink(url: url)) != nil else {
-            store.error = "That isn’t a CodexGauge pairing link. Copy a new link from Pair iPhone on your Mac, then tap Paste."; return
+            store.error = "That isn’t a TokenTach pairing link. Copy a new link from Pair iPhone on your Mac, then tap Paste."; return
         }
         pairingTask = Task {
             await store.add(url)
@@ -249,7 +251,7 @@ struct CompanionHome: View {
                     }
                     Section {
                         Text("Viewing links disclose account email and grant read-only access. They cannot send instructions or approve actions on a Mac.")
-                        Text("A Mac must be awake and running CodexGauge to provide fresh data.")
+                        Text("A Mac must be awake and running TokenTach to provide fresh data.")
                         Text("Shows local Codex tasks. Cloud-only Work chats and live compaction status aren’t available.")
                     }.font(.footnote).foregroundStyle(.secondary)
                 }.navigationTitle("Settings").navigationBarTitleDisplayMode(.inline)
@@ -468,15 +470,16 @@ struct TaskRow: View {
                     }.fixedSize().accessibilityElement(children: .combine)
                 }
             }
-            let metricsLayout = dynamicTypeSize.isAccessibilitySize
-                ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
-                : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
-            metricsLayout {
+            VStack(alignment: .leading, spacing: 6) {
                 phase
-                HStack(spacing: 12) { contextAndTime }
+                let layout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+                    : AnyLayout(HStackLayout(alignment: .center, spacing: 12))
+                layout { contextAndTime }
             }.font(.caption).foregroundStyle(.secondary)
             if !task.hasRate && task.state == .running { Text("No token observation").font(.caption).foregroundStyle(.secondary) }
         }.padding(.vertical, 6)
+            .accessibilityIdentifier("companion.taskRow.\(task.id)")
     }
     private var phase: some View {
         HStack(spacing: 5) {
@@ -484,24 +487,24 @@ struct TaskRow: View {
             else { Image(systemName: task.state.symbol).accessibilityHidden(true) }
             Text(stale ? "Last seen: \(task.state.title.lowercased())" : task.state == .running ? task.displayActivity : task.state.title)
                 .foregroundStyle(task.state == .needsApproval || task.state == .needsInput ? Color.orange : Color.secondary)
-        }
+        }.fixedSize(horizontal: false, vertical: true)
     }
     @ViewBuilder private var contextAndTime: some View {
         if let value = task.contextPercent {
             HStack(spacing: 4) {
                 Image(systemName: "circle.dashed").accessibilityHidden(true)
                 Text("\(Int(value))% \(task.metrics?.contextIncludesAgent == true ? "agent context" : "context")").monospacedDigit()
-                    .fixedSize(horizontal: !dynamicTypeSize.isAccessibilitySize, vertical: false)
+                    .fixedSize(horizontal: false, vertical: true)
             }.accessibilityElement(children: .combine)
         }
         if let start = task.startedAt {
             if task.state == .completed {
-                if let duration = task.metrics?.lastTurnSeconds { Label(CompanionTime.duration(duration), systemImage: "clock") }
-                else { Label("Elapsed unavailable", systemImage: "clock") }
+                if let duration = task.metrics?.lastTurnSeconds { durationLabel(duration) }
+                else { Label("Elapsed unavailable", systemImage: "clock").fixedSize(horizontal: false, vertical: true) }
             } else if stale {
                 if let elapsed = CompanionTaskTiming.observedElapsed(start: start, task: task.observedAt, snapshot: snapshotObservedAt) {
-                    Label(CompanionTime.duration(elapsed), systemImage: "clock")
-                } else { Label("Elapsed unavailable", systemImage: "clock") }
+                    durationLabel(elapsed)
+                } else { Label("Elapsed unavailable", systemImage: "clock").fixedSize(horizontal: false, vertical: true) }
             } else {
                 HStack(spacing: 4) {
                     Image(systemName: "clock")
@@ -509,6 +512,12 @@ struct TaskRow: View {
                 }.accessibilityLabel("Current turn elapsed")
             }
         }
+    }
+    private func durationLabel(_ seconds: Double) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "clock").accessibilityHidden(true)
+            Text(CompanionTime.duration(seconds)).monospacedDigit().fixedSize()
+        }.fixedSize().accessibilityElement(children: .combine)
     }
 }
 

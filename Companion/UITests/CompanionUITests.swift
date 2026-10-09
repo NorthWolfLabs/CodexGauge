@@ -1,6 +1,35 @@
 import XCTest
 
 final class CompanionUITests: XCTestCase {
+    @MainActor func testTaskMetadataDoesNotCrushElapsedTime() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-companionDemo", "-companionTaskLayoutDemo"]
+        app.launch()
+        app.tabBars.buttons["Tasks"].tap()
+        let row = app.descendants(matching: .any)["companion.taskRow.task1"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = "Task metadata at standard text size"; shot.lifetime = .keepAlways; add(shot)
+        XCTAssertLessThan(row.frame.height, 130, "A short stale task must not grow into a tall card from compressed metadata.")
+        let elapsed = app.staticTexts["0:05:43"].firstMatch
+        XCTAssertTrue(elapsed.exists)
+        XCTAssertLessThan(elapsed.frame.height, 25, "The elapsed value must remain on one line.")
+        XCTAssertGreaterThan(elapsed.frame.width, 45)
+    }
+    @MainActor func testPairingShowsDeviceNameAndAccessExplanation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-companionDemo"]
+        app.launch()
+        app.buttons["Settings"].firstMatch.tap()
+        app.buttons["Link a Mac"].firstMatch.tap()
+        XCTAssertTrue(app.navigationBars["Link a Mac"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["companion.deviceName"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Its name appears in Devices on your Mac")).firstMatch.exists)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Device name and paired Mac access explanation"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
     @MainActor func testChartsAndCredits() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-companionDemo"]
@@ -61,26 +90,26 @@ final class CompanionUITests: XCTestCase {
             settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.09)).tap()
         } else {
             settings.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.785)).tap()
-            XCTAssertTrue(settings.buttons["CodexGauge, Codex allowance"].waitForExistence(timeout: 5))
+            XCTAssertTrue(settings.buttons["TokenTach, Codex allowance"].waitForExistence(timeout: 5))
             // The system animates the widget row upward after its gallery appears.
             Thread.sleep(forTimeInterval: 1)
             board.coordinate(withNormalizedOffset: CGVector(dx: 0.078, dy: 0.30)).tap()
         }
         if style == "rectangular" {
             for _ in 0..<5 {
-                if settings.cells["CodexGauge"].firstMatch.exists && settings.cells["CodexGauge"].firstMatch.isHittable { break }
+                if settings.cells["TokenTach"].firstMatch.exists && settings.cells["TokenTach"].firstMatch.isHittable { break }
                 board.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).press(forDuration: 0.1,
                     thenDragTo: board.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.52)))
             }
-            let row = settings.cells["CodexGauge"].firstMatch
+            let row = settings.cells["TokenTach"].firstMatch
             XCTAssertTrue(row.waitForExistence(timeout: 5)); row.tap()
             let rectangular = settings.buttons.matching(NSPredicate(format: "value == %@", "Widget, Rectangular")).firstMatch
             XCTAssertTrue(rectangular.waitForExistence(timeout: 5)); rectangular.tap()
         } else if style == "inline" {
-            let inline = settings.cells["CodexGauge, Codex allowance, Top Widget"]
+            let inline = settings.cells["TokenTach, Codex allowance, Top Widget"]
             XCTAssertTrue(inline.waitForExistence(timeout: 5)); inline.tap()
         } else {
-            settings.buttons["CodexGauge, Codex allowance"].tap()
+            settings.buttons["TokenTach, Codex allowance"].tap()
         }
         Thread.sleep(forTimeInterval: 10)
         let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
@@ -127,8 +156,8 @@ final class CompanionUITests: XCTestCase {
             XCTAssertTrue(addWidgets.waitForExistence(timeout: 5)); addWidgets.tap()
             let search = board.searchFields.firstMatch
             XCTAssertTrue(search.waitForExistence(timeout: 5))
-            search.tap(); search.typeText("CodexGauge")
-            let result = board.cells["CodexGauge"].firstMatch
+            search.tap(); search.typeText("TokenTach")
+            let result = board.cells["TokenTach"].firstMatch
             XCTAssertTrue(result.waitForExistence(timeout: 5)); result.tap()
             let addWidget = board.buttons.matching(NSPredicate(format: "label ENDSWITH %@", "Add Widget")).firstMatch
             XCTAssertTrue(addWidget.waitForExistence(timeout: 5)); addWidget.tap()
@@ -174,7 +203,7 @@ final class CompanionUITests: XCTestCase {
         if medium { XCTAssertTrue(app.staticTexts["63%"].exists) }
         XCUIDevice.shared.press(.home)
         let board = XCUIApplication(bundleIdentifier: "com.apple.springboard")
-        let icon = board.icons["CodexGauge"].firstMatch
+        let icon = board.icons["TokenTach"].firstMatch
         XCTAssertTrue(icon.waitForExistence(timeout: 5))
         icon.press(forDuration: 1.5)
         let editHome = board.buttons["Edit Home Screen"]
@@ -188,8 +217,8 @@ final class CompanionUITests: XCTestCase {
         addWidgets.tap()
         let search = board.searchFields.firstMatch
         XCTAssertTrue(search.waitForExistence(timeout: 5), board.debugDescription)
-        search.tap(); search.typeText("CodexGauge")
-        let result = board.cells["CodexGauge"].firstMatch
+        search.tap(); search.typeText("TokenTach")
+        let result = board.cells["TokenTach"].firstMatch
         XCTAssertTrue(result.waitForExistence(timeout: 5), board.debugDescription)
         result.tap()
         if ProcessInfo.processInfo.environment["COMPANION_WIDGET_STYLE"] == "medium" {
@@ -309,7 +338,7 @@ extension CompanionUITests {
         XCTAssertFalse(app.textViews["companion.viewingLink"].exists)
         XCTAssertFalse(app.buttons["Link Mac"].exists)
         app.buttons["companion.pasteLink"].tap()
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "That isn’t a CodexGauge pairing link.")).firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "That isn’t a TokenTach pairing link.")).firstMatch.waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["private-malformed-sentinel"].exists)
         capture("Paste gives a helpful error without displaying the URL")
         app.buttons["Scan QR code"].tap()
@@ -387,7 +416,7 @@ extension CompanionUITests {
         }
         XCTAssertTrue(app.switches["Follow active tasks"].exists)
         for text in ["Viewing links disclose account email and grant read-only access. They cannot send instructions or approve actions on a Mac.",
-                     "A Mac must be awake and running CodexGauge to provide fresh data.",
+                     "A Mac must be awake and running TokenTach to provide fresh data.",
                      "Shows local Codex tasks. Cloud-only Work chats and live compaction status aren’t available."] {
             XCTAssertTrue(app.staticTexts[text].exists)
         }

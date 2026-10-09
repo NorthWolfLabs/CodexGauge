@@ -22,7 +22,7 @@ def verify(app: Path, *, release: bool, universal: bool) -> None:
         assert entitlements.get(key) is True, f"Missing signed entitlement: {key}"
     if release:
         assert {key for key in entitlements if key.startswith("com.apple.security.")} <= required, "Unexpected sandbox/security entitlement"
-        assert not list(app.rglob("CodexGaugeTestPeer")), "Unit-test peer must not ship"
+        assert not list(app.rglob("TokenTachTestPeer")), "Unit-test peer must not ship"
         assert not list(app.rglob("*.xctest")), "Unit tests must not ship"
         assert not entitlements.get("com.apple.security.get-task-allow"), "Release is debuggable"
         assert not any("temporary-exception" in key for key in entitlements), "Release contains sandbox exceptions"

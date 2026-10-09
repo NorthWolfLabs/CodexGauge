@@ -128,7 +128,7 @@ import OSLog
         return true
     }
     private static var environment: String {
-        #if DEBUG
+        #if DEBUG || LOCAL_DEVICE_CANDIDATE
         "sandbox"
         #else
         "production"

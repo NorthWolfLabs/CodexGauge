@@ -19,7 +19,7 @@ if mode == 'read-write':
     entitlements['com.apple.security.files.user-selected.read-write'] = True
 Path('.build/sandbox-probe.entitlements').write_bytes(plistlib.dumps(entitlements))
 PY
-xcrun swiftc -swift-version 6 Experiments/SandboxCompatibility/main.swift CodexGauge/AnchoredFileAccess.swift \
+xcrun swiftc -swift-version 6 Experiments/SandboxCompatibility/main.swift TokenTach/AnchoredFileAccess.swift \
     -o "$bundle/Contents/MacOS/SandboxCompatibility" -framework AppKit
 codesign --force --sign "${PROBE_SIGNING_IDENTITY:-Developer ID Application: North Wolf Labs LLC (ALPX923Y54)}" \
     --entitlements .build/sandbox-probe.entitlements "$bundle"

@@ -116,7 +116,7 @@ final class CompanionAccountUITests: XCTestCase {
         XCTAssertFalse(app.buttons["companion.accountSelector"].exists)
         shot("Single account — visible identity", app)
         app.tabBars.buttons["Tasks"].tap()
-        XCTAssertTrue(app.staticTexts["CodexGauge · gpt-6.1-sol"].exists)
+        XCTAssertTrue(app.staticTexts["TokenTach · gpt-6.1-sol"].exists)
         shot("Native running task cards", app)
         app.tabBars.buttons["Activity"].tap()
         XCTAssertTrue(app.staticTexts["alex@example.com"].exists)

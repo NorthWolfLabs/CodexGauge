@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>CodexGauge</string>
+	<string>TokenTach</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -19,6 +19,7 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
+				<string>tokentach</string>
 				<string>codexgauge</string>
 			</array>
 		</dict>
@@ -27,13 +28,15 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>CompanionKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)com.northwolflabs.CodexGauge.companion</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Scan a CodexGauge viewing QR code from your Mac to link this iPhone.</string>
+	<string>Scan a TokenTach viewing QR code from your Mac to link this iPhone.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>

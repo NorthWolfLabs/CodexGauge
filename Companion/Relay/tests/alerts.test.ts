@@ -5,7 +5,7 @@ import { providerToken, sendPush } from '../src/apns.ts';
 import type { Snapshot } from '../src/protocol.ts';
 const initial = (): Snapshot => ({ schemaVersion: 1, id: '33333333-3333-4333-8333-333333333333', name: 'Test Mac', observedAt: 1000,
   account: { id: 'same-account', observedAt: 1000, windows: [{ id: 'weekly', name: 'Weekly', remainingPercent: 60, resetsAt: 1100 }], bankedResets: 2, dailyTokens: [] },
-  tasks: [{ id: 'task', title: 'Build mobile', project: 'CodexGauge', state: 'running', activity: 'Working', startedAt: 990, tokensPerMinute: 3, totalTokens: 100, agentCount: 0 }] });
+  tasks: [{ id: 'task', title: 'Build mobile', project: 'TokenTach', state: 'running', activity: 'Working', startedAt: 990, tokensPerMinute: 3, totalTokens: 100, agentCount: 0 }] });
 test('live token ticks do not require persistent writes, but state changes do', () => {
   const before = initial(), after = structuredClone(before);
   after.observedAt++; after.account!.observedAt++; after.tasks[0].tokensPerMinute = 900;
@@ -23,7 +23,7 @@ test('explicit completion identifies its task, project and Mac without live catc
   after.tasks[0].state = 'completed'; after.tasks[0].eventAt = 1001;
   const events = changes(before, after);
   assert.equal(events.length, 1); assert.equal(events[0].kind, 'completed');
-  assert.equal(events[0].body, 'Build mobile\nCodexGauge\nTest Mac');
+  assert.equal(events[0].body, 'Build mobile\nTokenTach\nTest Mac');
 });
 test('historical tasks are baselined; an actual later turn can emit a working alert', () => {
   const before = initial(), after = structuredClone(before); after.observedAt = 1002;

@@ -9,6 +9,7 @@ The companion relay retains data beyond handling a single request. Optional opt-
 | Current data | Proposed classification to review | Purpose |
 | --- | --- | --- |
 | Account fingerprint, installation identifier, APNs device and ActivityKit tokens | User ID / Device ID, linked | Combine account allowances, identify linked Macs, deliver alerts |
+| Paired phone/tablet names | Other Data Types, linked; review Personal Information if the user includes their name | Identify and remove the user’s paired devices |
 | Task titles and project names | Other User Content, linked | Display tasks and identify alerts |
 | Task states, token usage, allowance/reset observations, credit balances and plan | Product Interaction / Other Data Types, linked; verify the precise categories against the final form | Display usage and task activity |
 | IP address and ordinary network request metadata | Review actual Cloudflare retention/logging before choosing the final category | Service operation and rate limiting |

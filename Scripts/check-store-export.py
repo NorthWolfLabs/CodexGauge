@@ -23,7 +23,7 @@ def verify_export(package: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="codexgauge-store-export-") as root:
         destination = Path(root) / "expanded"
         subprocess.run(["pkgutil", "--expand-full", str(package), str(destination)], check=True)
-        apps = list(destination.rglob("CodexGauge.app"))
+        apps = list(destination.rglob("TokenTach.app"))
         assert len(apps) == 1, "Expected one app in the Store package"
         app = apps[0]
         verify(app, release=True, universal=True)

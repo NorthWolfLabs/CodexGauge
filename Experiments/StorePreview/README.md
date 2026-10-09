@@ -1,16 +1,16 @@
 # Full-app sandbox preview
 
-October 6: sandboxing is now also enabled on the main `CodexGauge` target and beta packaging. This target remains an isolated diagnostic identity. The results below are historical evidence, not verification of the latest source. See [current packaging](../../Distribution/README.md).
+October 6: sandboxing is now also enabled on the main `TokenTach` target and beta packaging. This target remains an isolated diagnostic identity. The results below are historical evidence, not verification of the latest source. See [current packaging](../../Distribution/README.md).
 
-`CodexGaugeStorePreview` is an isolated target in the main Xcode project. It builds the real settings, dashboard, Codex account client, session monitor and companion publisher with App Sandbox enabled. Its identity is `com.northwolflabs.CodexGauge.store-preview`; preferences, support files and companion credentials are separate from the working beta. This is a development investigation, not a submitted or approved Mac App Store build.
+`TokenTachStorePreview` is an isolated target in the main Xcode project. It builds the real settings, dashboard, Codex account client, session monitor and companion publisher with App Sandbox enabled. Its identity is `com.northwolflabs.CodexGauge.store-preview`; preferences, support files and companion credentials are separate from the working beta. This is a development investigation, not a submitted or approved Mac App Store build.
 
 ## Run
 
 ```sh
-xcodebuild build -project CodexGauge.xcodeproj -scheme CodexGaugeStorePreview \
+xcodebuild build -project TokenTach.xcodeproj -scheme TokenTachStorePreview \
   -configuration Debug -destination 'platform=macOS,arch=arm64' \
   -derivedDataPath .build/store-preview
-open -n '.build/store-preview/Build/Products/Debug/CodexGauge Store Preview.app' \
+open -n '.build/store-preview/Build/Products/Debug/TokenTach Store Preview.app' \
   --args -showNotificationsSettings
 ```
 

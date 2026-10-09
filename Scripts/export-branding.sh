@@ -7,14 +7,14 @@ compiler="${developer_dir:h}/Applications/Icon Composer.app/Contents/Executables
 [[ -x "$compiler" ]] || { print -u2 'Icon Composer export tool is unavailable in the selected Xcode.'; exit 1; }
 command -v magick >/dev/null || { print -u2 'ImageMagick is required to compress branding PNG exports.'; exit 1; }
 # Pin the design generation: do not silently change artwork when updating Xcode.
-mkdir -p CodexGauge/Branding
+mkdir -p TokenTach/Branding
 for appearance in Light Dark; do
   rendition=Default
   [[ "$appearance" == Dark ]] && rendition=Dark
-  "$compiler" CodexGauge/AppIcon.icon --export-image \
-    --output-file "CodexGauge/Branding/CodexGauge-$appearance.png" \
+  "$compiler" TokenTach/AppIcon.icon --export-image \
+    --output-file "TokenTach/Branding/TokenTach-$appearance.png" \
     --platform macOS --rendition "$rendition" --width 1024 --height 1024 --scale 1 --design-generation 27
-  icon="CodexGauge/Branding/CodexGauge-$appearance.png"
+  icon="TokenTach/Branding/TokenTach-$appearance.png"
   # Lossless re-encoding retains 16-bit RGBA pixels, transparency, and the color profile.
   magick "$icon" -define png:compression-level=9 "${icon:r}.compressed.png"
   mv "${icon:r}.compressed.png" "$icon"
@@ -25,8 +25,8 @@ for size in 16 32 128 256 512; do
   for scale in 1 2; do
     suffix=''
     [[ "$scale" == 2 ]] && suffix='@2x'
-    "$compiler" CodexGauge/AppIcon.icon --export-image \
-      --output-file "CodexGauge/Assets.xcassets/AppIcon.appiconset/icon_${size}x${size}${suffix}.png" \
+    "$compiler" TokenTach/AppIcon.icon --export-image \
+      --output-file "TokenTach/Assets.xcassets/AppIcon.appiconset/icon_${size}x${size}${suffix}.png" \
       --platform macOS --rendition Default --width "$size" --height "$size" --scale "$scale" --design-generation 27
   done
 done

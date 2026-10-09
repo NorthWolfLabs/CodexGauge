@@ -25,17 +25,17 @@ if [[ -n "${PERFORMANCE_APP_PATH:-}" ]]; then
   app_path="$PERFORMANCE_APP_PATH"
 else
   xcodebuild build \
-    -project "$project_root/CodexGauge.xcodeproj" \
-    -scheme CodexGauge \
+    -project "$project_root/TokenTach.xcodeproj" \
+    -scheme TokenTach \
     -configuration Release \
     -destination "platform=macOS,arch=$execution_architecture" \
     -derivedDataPath "$derived_data" \
     ARCHS="$execution_architecture" ONLY_ACTIVE_ARCH=NO \
     CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=
-  app_path="$derived_data/Build/Products/Release/CodexGauge.app"
+  app_path="$derived_data/Build/Products/Release/TokenTach.app"
 fi
 
-binary="$app_path/Contents/MacOS/CodexGauge"
+binary="$app_path/Contents/MacOS/TokenTach"
 [[ -x "$binary" ]] || { print -u2 "performance: app executable is missing at $binary"; exit 1; }
 lipo "$binary" -verify_arch "$execution_architecture" >/dev/null 2>&1 || {
   print -u2 "performance: app has no $execution_architecture slice"
@@ -45,8 +45,8 @@ launch_command=("$binary")
 if [[ "$execution_architecture" == x86_64 && "$host_architecture" == arm64 ]]; then
   launch_command=(/usr/bin/arch -x86_64 "$binary")
 fi
-if pgrep -x CodexGauge >/dev/null; then
-  print -u2 "performance: quit every other CodexGauge instance before running the gate"
+if pgrep -x TokenTach >/dev/null; then
+  print -u2 "performance: quit every other TokenTach instance before running the gate"
   exit 1
 fi
 
@@ -179,7 +179,7 @@ run_scenario() {
   "$probe" "$pid" "$scenario" "$sample_seconds" "$warmup_seconds" \
     "$average" "$p95" "$memory" "$growth" "$result" || probe_status=$?
 
-  /usr/bin/log show --start "$started" --style compact --predicate 'process == "CodexGauge"' > "$runtime_log" || true
+  /usr/bin/log show --start "$started" --style compact --predicate 'process == "TokenTach"' > "$runtime_log" || true
   if grep -Ei 'com\.apple\.runtime-issues|Invalid frame dimension|negative or non-finite|Custom UnitPoint|Charts:|Unable to simultaneously satisfy constraints|Publishing changes from within view updates|AttributeGraph: cycle|main thread as it may lead to UI unresponsiveness' \
     "$process_log" "$runtime_log"; then
     probe_status=1

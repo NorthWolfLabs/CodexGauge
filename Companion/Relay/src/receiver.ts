@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { receiverChanges, notificationSignature, accountAlertSignature, compactSnapshot } from './alerts';
 import type { PushRegistration, PushResult } from './apns';
-import { liveState, nextLiveTaskID, liveRecordMissingOnDevice, liveSignature, liveUrgentSignature, livePhaseSignature, liveDeliveryIsUrgent, liveNeedsRenewal, nextLiveEvent, type LiveRecord } from './live-activities';
+import { liveState, nextLiveTaskID, liveRecordMissingOnDevice, liveSignature, liveUrgentSignature, livePhaseSignature, liveDeliveryIsUrgent, liveRefreshAfter, liveNeedsRenewal, nextLiveEvent, type LiveRecord } from './live-activities';
 import type { Delivery } from './delivery';
 import type { Scope, Snapshot } from './protocol';
 
@@ -212,7 +212,7 @@ export class PushReceiverV2 extends DurableObject<Env> {
     if (now - (this.read<number>('lastTest') ?? 0) < 30) return 'rate-limited';
     this.write('lastTest', now);
     this.write('outbox', [...this.queue(), { ...this.job(mac, device), durable: true, expires: now + 3600,
-      alert: { id: 'test:' + crypto.randomUUID(), kind: 'completed', title: 'Test notification', body: 'Your CodexGauge phone alerts are connected.', at: now, macID: mac } }]);
+      alert: { id: 'test:' + crypto.randomUUID(), kind: 'completed', title: 'Test notification', body: 'Your TokenTach phone alerts are connected.', at: now, macID: mac } }]);
     await this.schedule(); return 'queued';
   }
   async revoke(mac: string, generation?: number, revision?: number) {
@@ -228,6 +228,17 @@ export class PushReceiverV2 extends DurableObject<Env> {
     this.write('outbox', jobs);
     this.forget('subscription:' + mac); this.forget('mac:' + mac); this.forget('live:' + mac);
     await this.schedule();
+  }
+  async prepareBatch(observations: Snapshot[], generation: number) {
+    const deliveries = await this.prepare(observations, generation);
+    const mac = observations.at(-1)?.id, device = this.read<PushRegistration>('device');
+    const record = mac ? this.liveRecord(mac) : undefined;
+    if (!mac || !record || !this.subscription(mac)?.liveEnabled) return { deliveries };
+    // This request will deliver the returned jobs before acknowledging the Mac.
+    // Derive the next deadline in the same RPC; no extra database write or alarm.
+    const prompt = deliveries.find(job => job.mac === mac && job.live && job.urgent);
+    const next = prompt?.live ? { ...record, lastPromptSentAt: prompt.live.timestamp, lastPhaseSignature: livePhaseSignature(prompt.live.state) } : record;
+    return { deliveries, refreshAfter: liveRefreshAfter(next, Date.now() / 1000, device?.liveActivities?.frequentUpdates === true) };
   }
   async prepare(observations: Snapshot[], generation: number): Promise<Delivery[]> {
     for (const snapshot of observations) this.observe(compactSnapshot(snapshot), generation);
@@ -245,7 +256,7 @@ export class PushReceiverV2 extends DurableObject<Env> {
         live: { event, state: record.state, macID: snapshot.id, macName: snapshot.name, timestamp: now } };
       // Reserve only in memory. A restart may repeat a latest-value update, which
       // is safe; it must not turn every metric into a storage operation.
-      this.memory.set('live:' + snapshot.id, { ...record, lastSentAt: now, lastSignature: liveSignature(record.state) });
+      this.memory.set('live:' + snapshot.id, { ...record, lastSentAt: now, lastSignature: liveSignature(record.state), lastUpdatePhaseSignature: livePhaseSignature(record.state) });
       jobs.push(job); this.counters.metrics++;
     }
     if (this.counters.observations % 128 === 0) console.info('relay.receiver', this.counters);
@@ -295,7 +306,7 @@ export class PushReceiverV2 extends DurableObject<Env> {
         } else if (job.live.timestamp >= (current.lastPromptSentAt ?? 0)) {
           const state = job.live.state;
           const updated = { ...current,
-            ...(job.live.timestamp >= (current.lastSentAt ?? 0) ? { lastSentAt: job.live.timestamp, lastSignature: liveSignature(state) } : {}),
+            ...(job.live.timestamp >= (current.lastSentAt ?? 0) ? { lastSentAt: job.live.timestamp, lastSignature: liveSignature(state), lastUpdatePhaseSignature: livePhaseSignature(state) } : {}),
             lastUrgentSignature: liveUrgentSignature(state),
             ...(job.urgent || job.live.event === 'start' ? { lastPhaseSignature: livePhaseSignature(state), lastPromptSentAt: job.live.timestamp } : {}), attempts: 0, retryAt: undefined };
           // Priority transitions/freshness checkpoints are infrequent. Ordinary

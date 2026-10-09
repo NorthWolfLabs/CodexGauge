@@ -139,7 +139,7 @@ private struct ActivityAccessFeed: Sendable {
     }
     func publish(_ state: String?) async throws {
         let now = Date.now.timeIntervalSince1970
-        let tasks: [[String: Any]] = state.map { [["id": "access-probe", "title": "Access lifecycle probe", "project": "CodexGauge tests", "state": $0,
+        let tasks: [[String: Any]] = state.map { [["id": "access-probe", "title": "Access lifecycle probe", "project": "TokenTach tests", "state": $0,
             "activity": $0, "tokensPerMinute": 1200, "totalTokens": 100, "agentCount": 0, "eventAt": now]] } ?? []
         let data = try JSONSerialization.data(withJSONObject: ["schemaVersion": 1, "id": id, "name": "Activity Access Mac", "observedAt": now, "tasks": tasks])
         try await publishRelayFixture(data, on: socket, base: Self.base, id: id, publisher: publisher)

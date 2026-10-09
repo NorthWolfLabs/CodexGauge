@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible CodexGauge problem
+description: Report a reproducible TokenTach problem
 title: "[Bug]: "
 labels: [bug]
 body:
@@ -13,8 +13,8 @@ body:
           required: true
   - type: input
     attributes:
-      label: CodexGauge version
-      description: Find this in About CodexGauge.
+      label: TokenTach version
+      description: Find this in About TokenTach.
       placeholder: Version and build number
     validations:
       required: true

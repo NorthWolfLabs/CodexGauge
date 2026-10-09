@@ -1,10 +1,10 @@
 # Runtime performance
 
-CodexGauge treats idle resource use as a release requirement. The local performance gate runs the exported Release app through five deterministic, privacy-safe demo scenarios for five minutes each. It samples only the CodexGauge process with `proc_pid_rusage`; a separately launched Codex helper is never included in the app's budget.
+TokenTach treats idle resource use as a release requirement. The local performance gate runs the exported Release app through five deterministic, privacy-safe demo scenarios for five minutes each. It samples only the TokenTach process with `proc_pid_rusage`; a separately launched Codex helper is never included in the app's budget.
 
 ## Run the gate
 
-Quit any installed copy of CodexGauge, then run:
+Quit any installed copy of TokenTach, then run:
 
 ```sh
 ./Scripts/performance-check.sh
@@ -13,7 +13,7 @@ Quit any installed copy of CodexGauge, then run:
 To verify an already-exported app:
 
 ```sh
-PERFORMANCE_APP_PATH=/absolute/path/to/CodexGauge.app \
+PERFORMANCE_APP_PATH=/absolute/path/to/TokenTach.app \
   ./Scripts/performance-check.sh
 ```
 
@@ -22,7 +22,7 @@ The strict gate runs the host-native slice. Universal release validation additio
 The strict run takes about 25 minutes. A short installation smoke test is available for development only:
 
 ```sh
-PERFORMANCE_MODE=smoke PERFORMANCE_APP_PATH=/absolute/path/to/CodexGauge.app \
+PERFORMANCE_MODE=smoke PERFORMANCE_APP_PATH=/absolute/path/to/TokenTach.app \
   ./Scripts/performance-check.sh
 ```
 
@@ -40,7 +40,7 @@ Resource sampling starts only after the app emits a scenario-readiness marker. T
 
 The harness holds a `caffeinate` assertion for its entire run so display sleep and system-idle scene reconfiguration cannot contaminate a deterministic steady-state budget. JSON reports include every bounded one-second measured sample for direct peak correlation. Sleep/wake behavior remains part of manual compatibility testing rather than the resource baseline.
 
-Xcode 26.6 emits one known `[Internal]` priority-inversion diagnostic when `com.apple.testmanagerd` attaches a hosted unit-test bundle, even when all CodexGauge background work is disabled. The release script excludes only that exact message from the hosted-test runtime log. Standalone Release launches, exported-app performance scenarios, and mounted-DMG smoke tests receive no such exception.
+Xcode 26.6 emits one known `[Internal]` priority-inversion diagnostic when `com.apple.testmanagerd` attaches a hosted unit-test bundle, even when all TokenTach background work is disabled. The release script excludes only that exact message from the hosted-test runtime log. Standalone Release launches, exported-app performance scenarios, and mounted-DMG smoke tests receive no such exception.
 
 Signposts cover executable validation, session discovery and parsing, snapshot publication, transient-surface construction, and chart updates. On failure, the harness captures Time Profiler, SwiftUI, Allocations, Animation Hitches, and Leaks diagnostics under `.build/performance`; generated results and traces are intentionally not committed.
 

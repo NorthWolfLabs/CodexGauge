@@ -12,7 +12,7 @@ export interface LiveState {
 export interface LiveRecord {
   selectedTaskID?: string; state: LiveState; activityID?: string; token?: string; dismissed?: boolean;
   lastSentAt?: number; lastStartAt?: number; registeredAt?: number; startAttempts?: number;
-  lastSignature?: string; lastUrgentSignature?: string; lastPhaseSignature?: string; lastPromptSentAt?: number;
+  lastSignature?: string; lastUpdatePhaseSignature?: string; lastUrgentSignature?: string; lastPhaseSignature?: string; lastPromptSentAt?: number;
   retryAt?: number; attempts?: number; ending?: boolean; foregroundStartUntil?: number; deliveryBlocked?: boolean;
   foregroundMissingAt?: number; foregroundMissingActivityID?: string;
 }
@@ -81,6 +81,15 @@ export function liveDeliveryIsUrgent(record: LiveRecord, now: number, frequentUp
     || now - (record.lastPromptSentAt ?? 0) >= 120;
 }
 export const liveFreshnessInterval = 180;
+/** Tell the publisher when a deferred phase or prompt freshness update is due.
+ * Numerical updates must not keep moving this deadline into the future. */
+export function liveRefreshAfter(record: LiveRecord, now: number, frequentUpdates = false): number | undefined {
+  if (record.dismissed || record.deliveryBlocked || record.ending || !record.state.running && !record.state.attention) return;
+  if (!record.token) return 120;
+  const promptAt = record.lastPromptSentAt ?? now;
+  const phaseDue = record.lastPhaseSignature !== livePhaseSignature(record.state) ? promptAt + (frequentUpdates ? 30 : 60) : Infinity;
+  return Math.max(5, Math.min(120, Math.min(promptAt + 120, phaseDue) - now));
+}
 // ActivityKit ends a card after eight hours even if APNs continues accepting
 // updates. Renew before that limit; the task's turn clock remains unchanged.
 export const liveLifetime = 8 * 60 * 60 - 60;
@@ -98,8 +107,11 @@ export function nextLiveEvent(record: LiveRecord, enabled: boolean, canStart: bo
     if (now - record.state.updatedAt > liveFreshnessInterval) return;
     const elapsed = now - (record.lastSentAt ?? 0);
     if (liveDeliveryIsUrgent(record, now, frequentUpdates)) return 'update';
-    if (record.lastSignature !== liveSignature(record.state) && elapsed >= (frequentUpdates ? 5 : 15)
-      || elapsed >= 30) return 'update';
+    // Phases are latest-value events; metrics can wait a minute. Keep the
+    // separate bounded priority/freshness policy to respect Apple's push budget.
+    if ((record.lastUpdatePhaseSignature ?? record.lastPhaseSignature) !== livePhaseSignature(record.state) && elapsed >= 5
+      || record.lastSignature !== liveSignature(record.state) && elapsed >= 60
+      || elapsed >= 120) return 'update';
     return;
   }
   if (!enabled || !canStart || !active || record.ending || now - record.state.updatedAt > liveFreshnessInterval) return;

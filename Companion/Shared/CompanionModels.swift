@@ -223,7 +223,7 @@ struct CompanionLink: Codable, Hashable, Identifiable, Sendable {
 
     var shareURL: URL {
         var components = URLComponents()
-        components.scheme = "codexgauge"
+        components.scheme = "tokentach"
         components.host = "view"
         components.queryItems = [URLQueryItem(name: "server", value: server.absoluteString),
                                 URLQueryItem(name: "id", value: id)]
@@ -237,7 +237,7 @@ struct CompanionLink: Codable, Hashable, Identifiable, Sendable {
     }
 
     init(url: URL) throws {
-        guard url.scheme == "codexgauge", url.host == "view",
+        guard ["tokentach", "codexgauge"].contains(url.scheme ?? ""), url.host == "view",
               let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               let serverText = parts.queryItems?.first(where: { $0.name == "server" })?.value,
               let server = URL(string: serverText), Self.validServer(server),
@@ -443,7 +443,7 @@ struct CompanionPushJournal: Codable, Sendable {
     }
     mutating func acknowledge(through date: Date) -> Bool {
         let before = pending.count
-        pending.removeAll { $0.observedAt <= date }
+        pending.removeAll { $0.isAcknowledged(through: date) }
         return pending.count != before
     }
     func batch(latest: CompanionSnapshot) throws -> Data {
@@ -467,6 +467,11 @@ struct CompanionPushJournal: Codable, Sendable {
 }
 
 extension CompanionSnapshot {
+    /// Compare in the wire timestamp's precision. Date stores seconds from 2001;
+    /// converting to/from Unix seconds can lose a fraction of a microsecond.
+    func isAcknowledged(through date: Date) -> Bool {
+        date.timeIntervalSince1970 >= observedAt.timeIntervalSince1970
+    }
     var pushObservation: CompanionSnapshot {
         var result = self
         result.account?.dailyTokens = []
@@ -489,6 +494,74 @@ extension CompanionSnapshot {
         let value = Signature(accountID: account?.id, banked: account?.bankedResets,
             windows: (account?.windows ?? []).map { Window(id: $0.id, low: $0.remainingPercent <= 10, resetsAt: $0.resetsAt) },
             tasks: tasks.map { Task(id: $0.id, state: $0.state, eventAt: $0.eventAt, startedAt: $0.startedAt) })
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; encoder.dateEncodingStrategy = .secondsSince1970
+        return String(decoding: try encoder.encode(value), as: UTF8.self)
+    }
+}
+
+
+/// The relay derives this from authorized subscriptions and hibernating sockets.
+/// It is a hint about telemetry consumers, never permission to execute a command.
+struct CompanionPublishDemand: Codable, Equatable, Sendable {
+    var viewers: Int
+    var push: Bool
+    var paired: Bool
+    static let legacy = Self(viewers: 1, push: true, paired: true)
+}
+
+/// Latest-value delivery clocks are independent of the durable event journal.
+/// A failed upload must not mark its observations sent or postpone a transition.
+struct CompanionPublishPolicy: Sendable {
+    var demand: CompanionPublishDemand?
+    private(set) var lastPush: CompanionSnapshot?
+    private(set) var lastStream: CompanionSnapshot?
+    private var pushAt = Date.distantPast
+    private var streamAt = Date.distantPast
+    private var refreshAt = Date.distantPast
+
+    mutating func pushed(_ snapshot: CompanionSnapshot, at now: Date, refreshAfter: TimeInterval = 120) {
+        lastPush = snapshot; pushAt = now
+        refreshAt = now + min(120, max(5, refreshAfter))
+    }
+    mutating func streamed(_ snapshot: CompanionSnapshot, at now: Date) { lastStream = snapshot; streamAt = now }
+
+    func shouldPush(_ snapshot: CompanionSnapshot, pending: Bool, force: Bool, now: Date) throws -> Bool {
+        guard (demand ?? .legacy).push else { return false }
+        guard let lastPush else { return true }
+        if try pending || force || snapshot.notificationSignature() != lastPush.notificationSignature() { return true }
+        let elapsed = now.timeIntervalSince(pushAt)
+        if try elapsed >= 5 && snapshot.phaseSignature() != lastPush.phaseSignature() { return true }
+        if try elapsed >= 60 && snapshot.pushMetricSignature() != lastPush.pushMetricSignature() { return true }
+        // Only a live card needs freshness/lifetime maintenance. No idle polling
+        // for alerts: semantic changes above wake the push path immediately.
+        return !snapshot.activeTasks.isEmpty && now >= refreshAt
+    }
+
+    func shouldStream(_ snapshot: CompanionSnapshot, refresh: Bool, now: Date) throws -> Bool {
+        if refresh { return true }
+        let demand = demand ?? .legacy, elapsed = now.timeIntervalSince(streamAt)
+        if demand.viewers == 0 { return demand.paired && elapsed >= 300 }
+        guard let lastStream else { return true }
+        if try snapshot.notificationSignature() != lastStream.notificationSignature()
+            || snapshot.phaseSignature() != lastStream.phaseSignature() { return true }
+        var current = snapshot, previous = lastStream
+        current.observedAt = .distantPast; previous.observedAt = .distantPast
+        return elapsed >= 30 || elapsed >= 5 && current != previous
+    }
+}
+
+extension CompanionSnapshot {
+    func phaseSignature() throws -> String {
+        struct Phase: Encodable { let id: String; let activity: String? }
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        return String(decoding: try encoder.encode(tasks.sorted { $0.id < $1.id }.map {
+            Phase(id: $0.id, activity: $0.activity)
+        }), as: UTF8.self)
+    }
+    func pushMetricSignature() throws -> String {
+        var value = pushObservation
+        value.observedAt = .distantPast; value.account?.observedAt = .distantPast
+        for index in value.tasks.indices { value.tasks[index].observedAt = nil }
         let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]; encoder.dateEncodingStrategy = .secondsSince1970
         return String(decoding: try encoder.encode(value), as: UTF8.self)
     }
